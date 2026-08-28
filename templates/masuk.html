@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Masuk — Aplikasi Warkah</title>
+<link rel="stylesheet" href="/static/style.css?v={{ versi_gaya() }}">
+</head>
+<body class="latar-masuk">
+
+<div class="kotak-masuk">
+  <div class="kotak-masuk-kepala">
+    <div class="merek-besar">ARSIP WARKAH</div>
+    <div class="merek-kecil">Kantor Pertanahan Kabupaten Bone Bolango</div>
+  </div>
+
+  <form method="post" action="/masuk" class="kotak-masuk-isi">
+    <input type="hidden" name="next" value="{{ tujuan }}">
+
+    {% if galat %}<div class="pesan awas">{{ galat }}</div>{% endif %}
+
+    <div class="bidang-isian" style="margin-bottom:14px">
+      <label for="username">Nama pengguna</label>
+      <input type="text" id="username" name="username" autocomplete="username"
+             autofocus required class="lebar-penuh">
+    </div>
+    <div class="bidang-isian" style="margin-bottom:20px">
+      <label for="sandi">Sandi</label>
+      <input type="password" id="sandi" name="sandi" autocomplete="current-password"
+             required class="lebar-penuh">
+    </div>
+
+    <button type="submit" class="lebar-penuh" style="padding:10px">Masuk</button>
+
+    <p class="kecil redup" style="margin:18px 0 0; text-align:center">
+      Lupa sandi? Hubungi Admin untuk mengatur ulang.
+    </p>
+  </form>
+</div>
+
+</body>
+</html>

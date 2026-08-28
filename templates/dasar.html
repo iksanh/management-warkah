@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block judul %}Aplikasi Warkah{% endblock %}</title>
+<link rel="stylesheet" href="/static/style.css?v={{ versi_gaya() }}">
+</head>
+<body>
+
+<header class="utama">
+  <div class="merek">
+    ARSIP WARKAH
+    <small>Kantor Pertanahan Kabupaten Bone Bolango</small>
+  </div>
+  <nav class="utama">
+    <a href="/"            class="{{ 'aktif' if path == '/' }}">Beranda</a>
+    <a href="/katalog"     class="{{ 'aktif' if path.startswith('/katalog') or path.startswith('/bidang') }}">Katalog</a>
+    <a href="/sirkulasi"   class="{{ 'aktif' if path.startswith('/sirkulasi') }}">Sirkulasi</a>
+    <a href="/monitoring"  class="{{ 'aktif' if path.startswith('/monitoring') }}">Monitoring</a>
+    <a href="/rekap"       class="{{ 'aktif' if path.startswith('/rekap') }}">Rekap</a>
+    {% if admin %}
+      <a href="/impor"     class="{{ 'aktif' if path.startswith('/impor') }}">Impor</a>
+      <a href="/pengguna"  class="{{ 'aktif' if path.startswith('/pengguna') }}">Pengguna</a>
+    {% endif %}
+  </nav>
+  <div class="petugas-kotak">
+    <div class="petugas-nama">
+      {{ pengguna.nama }}
+      <span class="tanda {{ 'ungu' if admin else 'biru' }}">{{ pengguna.peran }}</span>
+    </div>
+    <a href="/ganti-sandi" class="tautan-kepala">Ganti sandi</a>
+    <a href="/keluar" class="tautan-kepala">Keluar</a>
+  </div>
+</header>
+
+<main>
+{% block isi %}{% endblock %}
+</main>
+
+</body>
+</html>

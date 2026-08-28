@@ -1,0 +1,323 @@
+{% extends "dasar.html" %}
+{% block judul %}Katalog — Aplikasi Warkah{% endblock %}
+{% block isi %}
+
+<h1>Katalog Warkah</h1>
+<p class="jelas">Cari berdasarkan nomor hak, NIB, nomor surat ukur, atau nama pemilik.</p>
+
+{% if tersimpan %}
+  <div class="pesan sukses">{{ tersimpan }} bidang tersimpan.</div>
+{% endif %}
+
+<div class="kartu">
+  <form class="saring" method="get" action="/katalog">
+    <div class="bidang-isian isian-lebar">
+      <label for="q">Kata kunci</label>
+      <input type="text" id="q" name="q" value="{{ qp.get('q', '') }}"
+             placeholder="nomor hak / NIB / surat ukur / pemilik" class="lebar-penuh">
+    </div>
+    <div class="bidang-isian">
+      <label for="kecamatan">Kecamatan</label>
+      <select id="kecamatan" name="kecamatan">
+        <option value="">Semua</option>
+        {% for k in kecamatan %}
+          <option value="{{ k.nama_kecamatan }}" {{ 'selected' if kec_terpilih == k.nama_kecamatan }}>{{ k.nama_kecamatan }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="bidang-isian">
+      <label for="desa">Desa</label>
+      <select id="desa" name="desa">
+        <option value="">Semua</option>
+        {% for d in desa_tampil %}
+          <option value="{{ d.id }}" {{ 'selected' if qp.get('desa') == d.id | string }}>
+            {{ d.nama_desa }}{{ '' if kec_terpilih else ' (' ~ d.nama_kecamatan ~ ')' }}
+          </option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="bidang-isian">
+      <label for="hak">Jenis hak</label>
+      <select id="hak" name="hak">
+        <option value="">Semua</option>
+        {% for h in daftar_hak %}
+          <option value="{{ h.kode }}" {{ 'selected' if qp.get('hak') == h.kode }}>{{ h.nama }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="bidang-isian">
+      <label for="kw">KW</label>
+      <select id="kw" name="kw">
+        <option value="">Semua</option>
+        {% for k in ['KW1','KW2','KW3','KW4','KW5','KW6'] %}
+          <option value="{{ k }}" {{ 'selected' if qp.get('kw') == k }}>{{ k }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="bidang-isian">
+      <label for="pinjam">Ketersediaan</label>
+      <select id="pinjam" name="pinjam">
+        <option value="">Semua</option>
+        <option value="tersedia" {{ 'selected' if qp.get('pinjam') == 'tersedia' }}>Tersedia</option>
+        <option value="dipinjam" {{ 'selected' if qp.get('pinjam') == 'dipinjam' }}>Sedang dipinjam</option>
+      </select>
+    </div>
+    <div class="bidang-isian">
+      <label for="periksa">Pemeriksaan</label>
+      <select id="periksa" name="periksa">
+        <option value="">Semua</option>
+        <option value="belum" {{ 'selected' if qp.get('periksa') == 'belum' }}>Belum diperiksa</option>
+        <option value="sudah" {{ 'selected' if qp.get('periksa') == 'sudah' }}>Sudah diperiksa</option>
+        {% for s in pilihan.status_identifikasi %}
+          <option value="{{ s }}" {{ 'selected' if qp.get('periksa') == s }}>{{ s }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="bidang-isian">
+      <label for="petugas">Petugas periksa</label>
+      <select id="petugas" name="petugas">
+        <option value="">Semua</option>
+        {% for p in petugas_periksa %}
+          <option value="{{ p.petugas }}" {{ 'selected' if qp.get('petugas') == p.petugas }}>{{ p.petugas }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="bidang-isian">
+      <label>&nbsp;</label>
+      <div style="display:flex; gap:6px">
+        <button type="submit">Cari</button>
+        <a href="/katalog" class="tombol kedua">Reset</a>
+      </div>
+    </div>
+  </form>
+</div>
+
+{# daftar desa lengkap, dipakai untuk menyusun ulang pilihan saat kecamatan diganti #}
+<script id="data-desa" type="application/json">{{ desa | tojson }}</script>
+<script>
+(function () {
+  var semuaDesa = JSON.parse(document.getElementById('data-desa').textContent);
+  var pilihKec = document.getElementById('kecamatan');
+  var pilihDesa = document.getElementById('desa');
+
+  function susunDesa() {
+    var kec = pilihKec.value;
+    var sebelumnya = pilihDesa.value;
+    var cocok = semuaDesa.filter(function (d) {
+      return !kec || d.nama_kecamatan === kec;
+    });
+
+    pilihDesa.innerHTML = '';
+    var semua = document.createElement('option');
+    semua.value = '';
+    semua.textContent = 'Semua';
+    pilihDesa.appendChild(semua);
+
+    cocok.forEach(function (d) {
+      var o = document.createElement('option');
+      o.value = String(d.id);
+      o.textContent = kec ? d.nama_desa : d.nama_desa + ' (' + d.nama_kecamatan + ')';
+      pilihDesa.appendChild(o);
+    });
+
+    // pertahankan pilihan lama bila desanya masih ada di kecamatan yang baru
+    var masihAda = cocok.some(function (d) { return String(d.id) === sebelumnya; });
+    pilihDesa.value = masihAda ? sebelumnya : '';
+  }
+
+  pilihKec.addEventListener('change', susunDesa);
+})();
+</script>
+
+<form method="post" action="/katalog/centang" id="borang-centang">
+<input type="hidden" name="kembali_ke" value="{{ kembali_ke }}">
+
+<div class="bilah-centang">
+  <div class="bidang-isian">
+    <label for="c-petugas">Petugas</label>
+    {% if admin %}
+      <select id="c-petugas" name="petugas">
+        {% for pt in daftar_petugas %}
+          <option value="{{ pt.nama }}" {{ 'selected' if pt.nama == petugas_aktif }}>{{ pt.nama }}</option>
+        {% endfor %}
+      </select>
+    {% else %}
+      <input type="text" id="c-petugas" value="{{ petugas_aktif }}" readonly class="terkunci">
+    {% endif %}
+  </div>
+  <div class="bidang-isian">
+    <label for="c-tanggal">Tanggal</label>
+    <input type="date" id="c-tanggal" name="tanggal" value="{{ hari_ini }}">
+  </div>
+  <div class="bidang-isian">
+    <label for="c-tempat">Tempat <span class="redup">(opsional)</span></label>
+    <input type="text" id="c-tempat" name="tempat" placeholder="mis. Kantah Bone Bolango">
+  </div>
+  <div class="bidang-isian">
+    <label for="c-status">Status</label>
+    <select id="c-status" name="status">
+      <option value="">(otomatis)</option>
+      {% for s in pilihan.status_identifikasi %}<option value="{{ s }}">{{ s }}</option>{% endfor %}
+    </select>
+  </div>
+  <div class="bidang-isian">
+    <label>&nbsp;</label>
+    <button type="submit" class="hijau" id="tombol-simpan" disabled>
+      Simpan centang (<span id="jml-ubah">0</span>)
+    </button>
+  </div>
+  <div class="petunjuk-centang">
+    Centang <strong>BT</strong> bila buku tanahnya ada dan <strong>SU</strong> bila surat
+    ukurnya ada, lalu Simpan. Hanya baris yang Anda ubah yang disimpan.
+    Status <em>(otomatis)</em> = Lengkap bila keduanya tercentang, selain itu Tidak Lengkap.
+  </div>
+</div>
+
+<div class="kartu rapat">
+  <div class="gulir">
+    <table>
+      <thead>
+        <tr>
+          <th class="tengah kol-centang" title="Centang semua buku tanah di halaman ini">
+            <label class="kepala-centang"><input type="checkbox" id="semua-bt"> BT</label>
+          </th>
+          <th class="tengah kol-centang" title="Centang semua surat ukur di halaman ini">
+            <label class="kepala-centang"><input type="checkbox" id="semua-su"> SU</label>
+          </th>
+          <th>Nomor Hak</th>
+          <th class="kol-opsional">Jenis</th>
+          <th>Desa</th>
+          <th class="kol-opsional">Kecamatan</th>
+          <th>Surat Ukur</th>
+          <th class="kol-opsional">NIB</th>
+          <th class="angka kol-opsional">Luas (m²)</th>
+          <th class="kol-opsional">KW</th>
+          <th>Pemilik Terakhir</th>
+          <th class="kol-opsional">Lokasi Simpan</th>
+          <th class="kol-opsional">Status</th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for r in baris %}
+        <tr data-id="{{ r.id }}">
+          <td class="tengah kol-centang">
+            <input type="checkbox" class="c-bt" data-id="{{ r.id }}"
+                   title="Buku tanah ada" {{ 'checked' if r.bt_ada == 'Ada' }}>
+          </td>
+          <td class="tengah kol-centang">
+            <input type="checkbox" class="c-su" data-id="{{ r.id }}"
+                   title="Surat ukur ada" {{ 'checked' if r.su_ada == 'Ada' }}>
+          </td>
+          <td class="nowrap"><a href="/bidang/{{ r.id }}" class="mono">{{ r.nomor_hak }}</a></td>
+          <td class="nowrap kecil kol-opsional">{{ r.nama_hak }}</td>
+          <td>{{ r.nama_desa }}</td>
+          <td class="kecil redup kol-opsional">{{ r.nama_kecamatan }}</td>
+          <td class="kecil">{{ r.surat_ukur or '—' }}</td>
+          <td class="mono kecil kol-opsional">{{ r.nib or '—' }}</td>
+          <td class="angka kol-opsional">{{ r.luas | angka if r.luas else '—' }}</td>
+          <td class="kol-opsional {{ 'kw1' if r.kw == 'KW1' else 'kwx' }}">{{ r.kw or '—' }}</td>
+          <td class="kecil kol-pemilik">{{ r.pemilik_akhir or '—' }}</td>
+          <td class="kecil nowrap kol-opsional">
+            {% set lok = [r.ruang, r.lemari, r.rak, r.box] | select | list %}
+            {% if lok %}<span class="tanda ungu">{{ lok | join(' / ') }}</span>{% else %}<span class="redup">belum diisi</span>{% endif %}
+          </td>
+          <td class="nowrap kol-opsional">
+            {% if r.pinjam_id %}
+              <span class="tanda {{ 'merah' if r.jatuh_tempo and r.jatuh_tempo < hari_ini() else 'oranye' }}">Dipinjam</span>
+            {% else %}
+              <span class="tanda hijau">Tersedia</span>
+            {% endif %}
+            {% if r.status_identifikasi and r.status_identifikasi != 'Belum Diperiksa' %}
+              <span class="tanda biru">{{ r.status_identifikasi }}</span>
+            {% endif %}
+          </td>
+        </tr>
+      {% else %}
+        <tr><td colspan="13" class="kosong">Tidak ada data yang cocok dengan pencarian.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <div id="wadah-ubah" hidden></div>
+
+  <div class="halaman">
+    <div class="info">
+      {{ jumlah | angka }} data ditemukan — halaman {{ hal }} dari {{ halaman_akhir | angka }}
+    </div>
+    {% set tautan = [] %}
+    {% for k, v in dasar.items() %}{% set _ = tautan.append(k ~ '=' ~ (v | urlencode)) %}{% endfor %}
+    {% set awalan = '/katalog?' ~ (tautan | join('&')) ~ ('&' if tautan else '') %}
+    {% if hal > 1 %}
+      <a class="tombol kecil kedua" href="{{ awalan }}hal=1">« Awal</a>
+      <a class="tombol kecil kedua" href="{{ awalan }}hal={{ hal - 1 }}">‹ Sebelumnya</a>
+    {% endif %}
+    {% if hal < halaman_akhir %}
+      <a class="tombol kecil kedua" href="{{ awalan }}hal={{ hal + 1 }}">Berikutnya ›</a>
+      <a class="tombol kecil kedua" href="{{ awalan }}hal={{ halaman_akhir }}">Akhir »</a>
+    {% endif %}
+  </div>
+</div>
+</form>
+
+<script>
+(function () {
+  var borang = document.getElementById('borang-centang');
+  var wadah = document.getElementById('wadah-ubah');
+  var tombol = document.getElementById('tombol-simpan');
+  var jml = document.getElementById('jml-ubah');
+  var diubah = new Set();
+
+  function tandai(id) {
+    diubah.add(String(id));
+    var tr = borang.querySelector('tr[data-id="' + id + '"]');
+    if (tr) tr.classList.add('baris-diubah');
+    jml.textContent = diubah.size;
+    tombol.disabled = diubah.size === 0;
+  }
+
+  borang.addEventListener('change', function (e) {
+    var el = e.target;
+    if (el.classList.contains('c-bt') || el.classList.contains('c-su')) {
+      tandai(el.dataset.id);
+    }
+  });
+
+  // centang seluruh kolom pada halaman yang sedang tampil
+  function semua(idKepala, kelas) {
+    document.getElementById(idKepala).addEventListener('change', function () {
+      var nyala = this.checked;
+      borang.querySelectorAll('.' + kelas).forEach(function (c) {
+        if (c.checked !== nyala) { c.checked = nyala; }
+        tandai(c.dataset.id);
+      });
+    });
+  }
+  semua('semua-bt', 'c-bt');
+  semua('semua-su', 'c-su');
+
+  // hanya baris yang diubah yang ikut terkirim
+  borang.addEventListener('submit', function () {
+    wadah.innerHTML = '';
+    diubah.forEach(function (id) {
+      var bt = borang.querySelector('.c-bt[data-id="' + id + '"]');
+      var su = borang.querySelector('.c-su[data-id="' + id + '"]');
+      var tambah = function (nama, nilai) {
+        var i = document.createElement('input');
+        i.type = 'hidden'; i.name = nama; i.value = nilai;
+        wadah.appendChild(i);
+      };
+      tambah('ubah', id);
+      if (bt && bt.checked) tambah('bt_' + id, '1');
+      if (su && su.checked) tambah('su_' + id, '1');
+    });
+  });
+
+  // cegah kehilangan centang yang belum disimpan
+  window.addEventListener('beforeunload', function (e) {
+    if (diubah.size) { e.preventDefault(); e.returnValue = ''; }
+  });
+  borang.addEventListener('submit', function () { diubah.clear(); });
+})();
+</script>
+
+{% endblock %}

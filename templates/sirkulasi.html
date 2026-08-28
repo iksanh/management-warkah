@@ -1,0 +1,96 @@
+{% extends "dasar.html" %}
+{% block judul %}Sirkulasi — Aplikasi Warkah{% endblock %}
+{% block isi %}
+
+<h1>Sirkulasi Peminjaman</h1>
+<p class="jelas">Catatan warkah yang keluar dari ruang arsip dan pengembaliannya.</p>
+
+<div class="kisi k6" style="margin-bottom:18px">
+  <div class="angka-kotak oranye">
+    <div class="nilai">{{ hitung.aktif | angka }}</div>
+    <div class="label">Sedang dipinjam</div>
+  </div>
+  <div class="angka-kotak merah">
+    <div class="nilai">{{ hitung.telat | angka }}</div>
+    <div class="label">Lewat jatuh tempo</div>
+  </div>
+  <div class="angka-kotak hijau">
+    <div class="nilai">{{ hitung.selesai | angka }}</div>
+    <div class="label">Sudah kembali</div>
+  </div>
+  <div class="angka-kotak">
+    <div class="nilai">{{ hitung.semua | angka }}</div>
+    <div class="label">Total transaksi</div>
+  </div>
+</div>
+
+<div class="tab">
+  <a href="/sirkulasi?tampil=aktif"   class="{{ 'aktif' if tampil == 'aktif' }}">Sedang dipinjam</a>
+  <a href="/sirkulasi?tampil=telat"   class="{{ 'aktif' if tampil == 'telat' }}">Lewat jatuh tempo</a>
+  <a href="/sirkulasi?tampil=selesai" class="{{ 'aktif' if tampil == 'selesai' }}">Sudah kembali</a>
+  <a href="/sirkulasi?tampil=semua"   class="{{ 'aktif' if tampil == 'semua' }}">Semua</a>
+</div>
+
+<div class="kartu rapat">
+  <div class="gulir">
+    <table>
+      <thead>
+        <tr>
+          <th>Nomor Hak</th>
+          <th>Desa / Kecamatan</th>
+          <th>Lokasi simpan</th>
+          <th>Peminjam</th>
+          <th>Keperluan</th>
+          <th>Pinjam</th>
+          <th>Jatuh tempo</th>
+          <th>Kembali</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for r in baris %}
+        <tr>
+          <td class="nowrap"><a href="/bidang/{{ r.bidang_id }}" class="mono">{{ r.nomor_hak }}</a></td>
+          <td class="kecil">{{ r.nama_desa }}<br><span class="redup">{{ r.nama_kecamatan }}</span></td>
+          <td class="kecil">
+            {% set lok = [r.ruang, r.lemari, r.rak, r.box] | select | list %}
+            {% if lok %}<span class="tanda ungu">{{ lok | join(' / ') }}</span>{% else %}<span class="redup">—</span>{% endif %}
+          </td>
+          <td>{{ r.peminjam }}<br><span class="kecil redup">{{ r.unit or '' }}</span></td>
+          <td class="kecil">{{ r.keperluan or '—' }}</td>
+          <td class="nowrap kecil">{{ r.tanggal_pinjam }}</td>
+          <td class="nowrap kecil">
+            {% if r.jatuh_tempo %}
+              {% if not r.tanggal_kembali and r.jatuh_tempo < hari_ini %}
+                <span class="tanda merah">{{ r.jatuh_tempo }}</span>
+              {% else %}{{ r.jatuh_tempo }}{% endif %}
+            {% else %}—{% endif %}
+          </td>
+          <td class="nowrap kecil">
+            {% if r.tanggal_kembali %}<span class="tanda hijau">{{ r.tanggal_kembali }}</span>
+            {% else %}<span class="tanda oranye">belum</span>{% endif %}
+          </td>
+          <td class="nowrap">
+            {% if not r.tanggal_kembali %}
+              <form method="post" action="/pinjam/{{ r.id }}/kembali" style="display:inline">
+                <input type="hidden" name="tanggal_kembali" value="{{ hari_ini }}">
+                <input type="hidden" name="kembali_ke" value="/sirkulasi?tampil={{ tampil }}">
+                <button type="submit" class="hijau kecil">Kembalikan</button>
+              </form>
+            {% endif %}
+          </td>
+        </tr>
+      {% else %}
+        <tr><td colspan="9" class="kosong">Tidak ada data pada tampilan ini.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<p class="kecil redup">
+  Peminjaman baru dicatat dari halaman detail bidang — cari warkahnya lebih dulu di
+  <a href="/katalog">Katalog</a>.
+</p>
+
+{% endblock %}

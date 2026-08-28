@@ -1,0 +1,207 @@
+{% extends "dasar.html" %}
+{% block judul %}Impor Data — Aplikasi Warkah{% endblock %}
+{% block isi %}
+
+<h1>Impor data bidang</h1>
+<p class="jelas">
+  Unggah berkas hasil tarikan KKP dengan format yang sama seperti isi folder
+  <span class="mono">per_desa</span>. Data lama tidak dihapus kecuali Anda memilih
+  mode <em>Ganti isi desa</em>, dan catatan penyimpanan, pemeriksaan, serta
+  peminjaman tidak pernah ikut terhapus.
+</p>
+
+<div class="kisi k3">
+  <div class="angka-kotak">
+    <div class="nilai">{{ ringkas.bidang | angka }}</div>
+    <div class="label">Bidang di basis data</div>
+  </div>
+  <div class="angka-kotak ungu">
+    <div class="nilai">{{ ringkas.desa | angka }}</div>
+    <div class="label">Desa terdaftar</div>
+  </div>
+  <div class="angka-kotak {{ 'hijau' if ringkas.desa_terisi == ringkas.desa else 'oranye' }}">
+    <div class="nilai">{{ ringkas.desa_terisi | angka }}</div>
+    <div class="label">Desa yang sudah ada datanya</div>
+  </div>
+</div>
+
+{% if galat %}
+  <div class="pesan awas">{{ galat }}</div>
+{% endif %}
+
+<div class="kartu">
+  <h2>Pilih berkas</h2>
+  <form method="post" action="/impor/jalankan" enctype="multipart/form-data" id="borang-impor">
+
+    <div class="bidang-isian isian-lebar">
+      <label for="berkas">Berkas Excel / CSV (boleh banyak sekaligus)</label>
+      <input type="file" id="berkas" name="berkas" multiple required
+             accept=".xlsx,.xlsm,.xls,.csv">
+      <p class="kecil redup" style="margin:6px 0 0">
+        Nama berkas mengikuti pola <span class="mono">HM_&lt;kodedesa&gt;_&lt;NAMA_DESA&gt;.xlsx</span>,
+        misalnya <span class="mono">HM_18040101_HUNTU.xlsx</span>. Berkas gabungan yang
+        sudah punya kolom <span class="mono">Kode_Desa</span> dan
+        <span class="mono">Nama_Desa</span> juga bisa langsung diunggah.
+      </p>
+    </div>
+
+    <div class="baris-borang">
+      <div class="bidang-isian isian-lebar">
+        <label for="mode">Cara menulis data</label>
+        <select id="mode" name="mode">
+          {% for kode, keterangan in mode_pilihan.items() %}
+            <option value="{{ kode }}" {{ 'selected' if terpilih.mode == kode }}>{{ keterangan }}</option>
+          {% endfor %}
+        </select>
+      </div>
+    </div>
+
+    <p class="kecil" style="margin:0 0 12px">
+      <label style="font-weight:500">
+        <input type="checkbox" name="buat_desa" value="1" {{ 'checked' if terpilih.buat_desa }}>
+        Daftarkan desa baru bila kode/nama desa belum ada di basis data
+      </label><br>
+      <label style="font-weight:500">
+        <input type="checkbox" name="arsip" value="1" {{ 'checked' if terpilih.arsip }}>
+        Simpan salinan berkas ke folder <span class="mono">unggahan/</span>
+      </label>
+    </p>
+
+    <button type="submit" name="aksi" value="uji" class="kedua">Periksa dulu (tanpa menyimpan)</button>
+    <button type="submit" name="aksi" value="simpan" class="hijau"
+            onclick="return confirm('Simpan hasil impor ke basis data?')">Simpan ke basis data</button>
+  </form>
+</div>
+
+{% if hasil %}
+  {% set t = hasil.total %}
+  <div class="pesan {{ 'sukses' if hasil.simpan else 'awas' }}">
+    {% if hasil.simpan %}
+      Impor tersimpan: {{ t.berkas }} berkas, {{ t.desa }} desa —
+      {{ t.baru | angka }} bidang baru, {{ t.diperbarui | angka }} diperbarui,
+      {{ t.dibuang | angka }} dibuang.
+    {% else %}
+      Hasil uji coba — <strong>belum ada yang disimpan</strong>. Bila angka di bawah sudah
+      sesuai, tekan “Simpan ke basis data” dengan berkas yang sama.
+    {% endif %}
+    {% if t.galat %} <span class="tanda merah">{{ t.galat }} berkas gagal</span>{% endif %}
+  </div>
+
+  <div class="kisi k6">
+    <div class="angka-kotak">
+      <div class="nilai">{{ t.baris | angka }}</div><div class="label">Baris dibaca</div>
+    </div>
+    <div class="angka-kotak hijau">
+      <div class="nilai">{{ t.baru | angka }}</div><div class="label">Bidang baru</div>
+    </div>
+    <div class="angka-kotak oranye">
+      <div class="nilai">{{ t.diperbarui | angka }}</div><div class="label">Diperbarui</div>
+    </div>
+    <div class="angka-kotak">
+      <div class="nilai">{{ t.sama | angka }}</div><div class="label">Sudah sama</div>
+    </div>
+    <div class="angka-kotak merah">
+      <div class="nilai">{{ t.dibuang | angka }}</div><div class="label">Dibuang</div>
+    </div>
+    <div class="angka-kotak ungu">
+      <div class="nilai">{{ t.desa_baru | angka }}</div><div class="label">Desa baru</div>
+    </div>
+  </div>
+
+  {% if t.lewat or t.ganda or t.ditahan or t.salinan %}
+    <p class="kecil redup">
+      {{ t.lewat | angka }} baris dilewati (nomor hak kosong atau tipe hak tidak dikenal),
+      {{ t.ganda | angka }} nomor hak ganda di dalam berkas,
+      {{ t.salinan | angka }} salinan ganda pada data lama di basis data
+      {%- if hasil.mode != 'ganti' %} (pilih mode <em>Ganti isi desa</em> untuk membersihkannya){% endif %},
+      {{ t.ditahan | angka }} bidang tidak jadi dibuang karena sudah punya catatan
+      penyimpanan / pemeriksaan / peminjaman.
+    </p>
+  {% endif %}
+
+  <div class="kartu rapat">
+    <div class="gulir">
+      <table>
+        <thead>
+          <tr>
+            <th>Berkas</th><th>Desa</th>
+            <th class="angka">Baris</th><th class="angka">Baru</th>
+            <th class="angka">Diperbarui</th><th class="angka">Sama</th>
+            <th class="angka">Dibuang</th><th>Keterangan</th>
+          </tr>
+        </thead>
+        <tbody>
+        {% for r in hasil.rincian %}
+          <tr>
+            <td class="mono kecil">{{ r.berkas }}</td>
+            <td>
+              {% if r.kode_desa %}
+                <span class="mono kecil redup">{{ r.kode_desa }}</span> {{ r.nama_desa }}
+                {% if r.desa_baru %}<span class="tanda ungu">desa baru</span>{% endif %}
+              {% else %}
+                <span class="redup">—</span>
+              {% endif %}
+            </td>
+            <td class="angka">{{ r.baris | angka }}</td>
+            <td class="angka">{{ r.baru | angka }}</td>
+            <td class="angka">{{ r.diperbarui | angka }}</td>
+            <td class="angka">{{ r.sama | angka }}</td>
+            <td class="angka">{{ r.dibuang | angka }}</td>
+            <td class="kecil">
+              {% if r.status == 'galat' %}
+                <span class="tanda merah">gagal</span> {{ r.pesan }}
+              {% elif r.status == 'kosong' %}
+                <span class="tanda abu">kosong</span> {{ r.pesan }}
+              {% else %}
+                {% for c in r.catatan %}<div class="redup">{{ c }}</div>{% endfor %}
+              {% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  {% if hasil.arsip %}
+    <p class="kecil redup">Salinan berkas disimpan di <span class="mono">{{ hasil.arsip }}</span>.</p>
+  {% endif %}
+{% endif %}
+
+<div class="kartu">
+  <h2>Format berkas yang dibaca</h2>
+  <p class="kecil redup" style="margin-top:0">
+    Nama kolom tidak harus persis: spasi, titik, dan besar-kecil huruf diabaikan.
+    Kolom yang tidak ada akan diisi kosong. Hanya <span class="mono">Nomor_Hak</span>
+    yang wajib ada.
+  </p>
+  <div class="gulir">
+    <table>
+      <thead><tr><th>Kolom</th><th>Isi</th></tr></thead>
+      <tbody>
+        <tr><td class="mono">Nomor_Hak</td><td>wajib — kunci pencocokan bersama desa dan tipe hak</td></tr>
+        <tr><td class="mono">Tipe_Hak</td><td>BT1 … BT8; kosong dianggap BT1 (Hak Milik)</td></tr>
+        <tr><td class="mono">Surat_Ukur</td><td>nomor surat ukur / gambar situasi</td></tr>
+        <tr><td class="mono">NIB</td><td>nomor identifikasi bidang</td></tr>
+        <tr><td class="mono">Luas</td><td>angka, meter persegi</td></tr>
+        <tr><td class="mono">Produk</td><td>jenis produk, mis. Sertipikat BMN 2014</td></tr>
+        <tr><td class="mono">Luas_Peta</td><td>luas hasil pemetaan</td></tr>
+        <tr><td class="mono">Validator_Tekstual</td><td>penanda validasi tekstual</td></tr>
+        <tr><td class="mono">Validator_Peta</td><td>penanda validasi spasial</td></tr>
+        <tr><td class="mono">Blokir_Internal</td><td>penanda blokir</td></tr>
+        <tr><td class="mono">KW</td><td>KW1 … KW6</td></tr>
+        <tr><td class="mono">Pemilik_Pertama</td><td>pemegang hak pertama</td></tr>
+        <tr><td class="mono">Pemilik_Akhir</td><td>pemegang hak terakhir</td></tr>
+        <tr><td class="mono">Kode_Desa, Nama_Desa</td><td>hanya untuk berkas gabungan; berkas per desa memakai nama berkas</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<p class="kecil redup">
+  Uji coba membaca seluruh berkas dan menghitung perubahannya, lalu membatalkan
+  semuanya — aman dijalankan berkali-kali. Bila proses gagal di tengah jalan,
+  seluruh perubahan dibatalkan sehingga basis data tidak setengah jadi.
+</p>
+
+{% endblock %}

@@ -1,0 +1,229 @@
+{% extends "dasar.html" %}
+{% block judul %}Rekap Bidang — Aplikasi Warkah{% endblock %}
+{% block isi %}
+
+<h1>Rekap bidang per desa</h1>
+<p class="jelas">
+  Jumlah bidang yang sudah terinput di aplikasi, disusun per kecamatan dan per desa
+  menurut kodenya. Isi kolom <strong>Jumlah KKP</strong> dengan angka dari aplikasi KKP
+  untuk melihat selisihnya langsung di sini, atau unduh CSV-nya lalu cocokkan di Excel.
+</p>
+
+<div class="kisi k6">
+  <div class="angka-kotak">
+    <div class="nilai">{{ semua.bidang | angka }}</div>
+    <div class="label">Bidang terinput (seluruhnya)</div>
+  </div>
+  <div class="angka-kotak ungu">
+    <div class="nilai">{{ semua.desa | angka }}</div>
+    <div class="label">Desa terdaftar</div>
+  </div>
+  <div class="angka-kotak">
+    <div class="nilai">{{ total.kecamatan | angka }}</div>
+    <div class="label">Kecamatan ditampilkan</div>
+  </div>
+  <div class="angka-kotak {{ 'hijau' if semua.terisi == semua.desa else 'oranye' }}">
+    <div class="nilai">{{ semua.terisi | angka }}</div>
+    <div class="label">Desa sudah diisi angka KKP</div>
+  </div>
+  <div class="angka-kotak">
+    <div class="nilai">{{ semua.kkp | angka }}</div>
+    <div class="label">Jumlah KKP terisi</div>
+  </div>
+  <div class="angka-kotak {{ 'merah' if total.beda else 'hijau' }}">
+    <div class="nilai">{{ total.beda | angka }}</div>
+    <div class="label">Desa selisihnya belum nol</div>
+  </div>
+</div>
+
+<div class="kartu">
+  <form method="get" action="/rekap" class="saring">
+    <div class="baris-borang">
+      <div class="bidang-isian">
+        <label for="kelompok">Kelompok kode</label>
+        <select id="kelompok" name="kelompok">
+          <option value="">Semua</option>
+          <option value="18XX" {{ 'selected' if qp.get('kelompok') == '18XX' }}>18XX</option>
+          <option value="30XX" {{ 'selected' if qp.get('kelompok') == '30XX' }}>30XX</option>
+        </select>
+      </div>
+      <div class="bidang-isian isian-lebar">
+        <label for="kode_kec">Kecamatan (kode)</label>
+        <select id="kode_kec" name="kode_kec">
+          <option value="">Semua kecamatan</option>
+          {% for k in daftar_kec %}
+            <option value="{{ k.kode_kec }}" {{ 'selected' if qp.get('kode_kec') == k.kode_kec }}>
+              {{ k.kode_kec }} — {{ k.nama_kecamatan }} ({{ k.kelompok }}, {{ k.desa }} desa)
+            </option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="bidang-isian">
+        <label for="beda">Kecocokan</label>
+        <select id="beda" name="beda">
+          <option value="">Semua desa</option>
+          <option value="beda"   {{ 'selected' if qp.get('beda') == 'beda' }}>Selisihnya belum nol</option>
+          <option value="cocok"  {{ 'selected' if qp.get('beda') == 'cocok' }}>Sudah cocok</option>
+          <option value="belum"  {{ 'selected' if qp.get('beda') == 'belum' }}>Angka KKP belum diisi</option>
+          <option value="kosong" {{ 'selected' if qp.get('beda') == 'kosong' }}>Belum ada bidang sama sekali</option>
+        </select>
+      </div>
+      <div class="bidang-isian">
+        <label>&nbsp;</label>
+        <button type="submit">Terapkan</button>
+      </div>
+      <div class="bidang-isian">
+        <label>&nbsp;</label>
+        <a class="tombol kedua" href="/rekap">Semua</a>
+      </div>
+      <div class="bidang-isian">
+        <label>&nbsp;</label>
+        <a class="tombol kedua" href="/rekap.csv{{ ('?' ~ kueri) if kueri else '' }}">Unduh CSV</a>
+      </div>
+    </div>
+  </form>
+</div>
+
+{% if not grup %}
+  <div class="kartu"><p class="kosong">Tidak ada desa yang cocok dengan saringan ini.</p></div>
+{% else %}
+<form method="post" action="/rekap/kkp">
+<input type="hidden" name="kembali_ke" value="{{ tautan }}">
+
+<div class="kartu rapat">
+  <div class="gulir">
+    <table>
+      <thead>
+        <tr>
+          <th>Kode desa</th>
+          <th>Desa</th>
+          <th class="angka">Bidang</th>
+          {% for k in kolom_kw %}<th class="angka">{{ k }}</th>{% endfor %}
+          <th class="angka">Tanpa KW</th>
+          <th class="angka">Jumlah KKP</th>
+          <th class="angka">Selisih</th>
+          <th>Catatan</th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for g in grup %}
+        <tr class="kepala-kecamatan">
+          <td class="mono">{{ g.kode_kec }}</td>
+          {# sisa kolom: desa, bidang, KW1..KW6, tanpa KW, jumlah KKP, selisih, catatan #}
+          <td colspan="{{ 6 + kolom_kw|length }}">
+            <strong>{{ g.nama }}</strong>
+            <span class="kecil redup">— {{ g.kelompok }}, {{ g.jumlah_desa }} desa</span>
+          </td>
+        </tr>
+        {% for d in g.desa %}
+          <tr>
+            <td class="mono">{{ d.kode_desa }}</td>
+            <td>
+              <a href="/katalog?desa={{ d.id }}">{{ d.nama_desa }}</a>
+            </td>
+            <td class="angka">{{ d.bidang | angka }}</td>
+            <td class="angka">{{ d.kw1 | angka }}</td>
+            <td class="angka">{{ d.kw2 | angka }}</td>
+            <td class="angka">{{ d.kw3 | angka }}</td>
+            <td class="angka">{{ d.kw4 | angka }}</td>
+            <td class="angka">{{ d.kw5 | angka }}</td>
+            <td class="angka">{{ d.kw6 | angka }}</td>
+            <td class="angka">{{ d.kw0 | angka }}</td>
+            <td class="angka">
+              {% if admin %}
+                <input type="number" class="isian-kkp" name="kkp_{{ d.id }}"
+                       value="{{ d.kkp if d.kkp is not none }}" min="0" step="1"
+                       placeholder="—">
+              {% else %}
+                {{ d.kkp | angka if d.kkp is not none else '—' }}
+              {% endif %}
+            </td>
+            <td class="angka">
+              {% if d.selisih is none %}
+                <span class="redup">—</span>
+              {% elif d.selisih == 0 %}
+                <span class="tanda hijau">cocok</span>
+              {% else %}
+                <span class="tanda merah">{{ '%+d' % d.selisih }}</span>
+              {% endif %}
+            </td>
+            <td>
+              {% if admin %}
+                <input type="text" class="isian-catatan" name="catatan_{{ d.id }}"
+                       value="{{ d.catatan_kkp or '' }}" placeholder="opsional">
+              {% else %}
+                <span class="kecil redup">{{ d.catatan_kkp or '' }}</span>
+              {% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+        <tr class="total">
+          <td class="mono">{{ g.kode_kec }}</td>
+          <td>JUMLAH {{ g.nama }}</td>
+          <td class="angka">{{ g.bidang | angka }}</td>
+          <td class="angka">{{ g.kw1 | angka }}</td>
+          <td class="angka">{{ g.kw2 | angka }}</td>
+          <td class="angka">{{ g.kw3 | angka }}</td>
+          <td class="angka">{{ g.kw4 | angka }}</td>
+          <td class="angka">{{ g.kw5 | angka }}</td>
+          <td class="angka">{{ g.kw6 | angka }}</td>
+          <td class="angka">{{ g.kw0 | angka }}</td>
+          <td class="angka">{{ g.kkp | angka if g.ada_kkp else '—' }}</td>
+          <td class="angka">
+            {% if g.selisih is none %}—
+            {% elif g.selisih == 0 %}<span class="tanda hijau">cocok</span>
+            {% else %}<span class="tanda merah">{{ '%+d' % g.selisih }}</span>{% endif %}
+          </td>
+          <td></td>
+        </tr>
+      {% endfor %}
+      </tbody>
+      <tfoot>
+        <tr class="total besar">
+          <td></td>
+          <td>JUMLAH SELURUHNYA ({{ total.desa }} desa)</td>
+          <td class="angka">{{ total.bidang | angka }}</td>
+          <td class="angka">{{ total.kw1 | angka }}</td>
+          <td class="angka">{{ total.kw2 | angka }}</td>
+          <td class="angka">{{ total.kw3 | angka }}</td>
+          <td class="angka">{{ total.kw4 | angka }}</td>
+          <td class="angka">{{ total.kw5 | angka }}</td>
+          <td class="angka">{{ total.kw6 | angka }}</td>
+          <td class="angka">{{ total.kw0 | angka }}</td>
+          <td class="angka">{{ total.kkp | angka if total.terisi else '—' }}</td>
+          <td class="angka">
+            {% if total.selisih is none %}—
+            {% elif total.selisih == 0 %}<span class="tanda hijau">cocok</span>
+            {% else %}<span class="tanda merah">{{ '%+d' % total.selisih }}</span>{% endif %}
+          </td>
+          <td></td>
+        </tr>
+      </tfoot>
+    </table>
+  </div>
+  {% if admin %}
+    <div class="halaman">
+      <span class="info">
+        Angka KKP terisi untuk {{ total.terisi }} dari {{ total.desa }} desa yang tampil.
+        Kosongkan isiannya untuk menghapus angka pembanding.
+      </span>
+      <button type="submit" class="hijau">Simpan angka KKP</button>
+    </div>
+  {% endif %}
+</div>
+</form>
+{% endif %}
+
+<p class="kecil redup">
+  <strong>Selisih = Bidang terinput − Jumlah KKP.</strong>
+  Angka positif berarti aplikasi punya bidang lebih banyak daripada KKP; angka negatif
+  berarti masih ada data KKP yang belum masuk — unggah berkas desanya lewat menu
+  {% if admin %}<a href="/impor">Impor</a>{% else %}Impor (Admin){% endif %}.
+  Kolom KW1–KW6 memakai nilai KW apa adanya dari KKP, sedangkan <em>Tanpa KW</em>
+  menghitung bidang yang kolom KW-nya kosong.
+  {% if total.kosong %}
+    Ada <strong>{{ total.kosong }}</strong> desa yang belum punya bidang sama sekali.
+  {% endif %}
+</p>
+
+{% endblock %}

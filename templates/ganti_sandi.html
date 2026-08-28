@@ -1,0 +1,37 @@
+{% extends "dasar.html" %}
+{% block judul %}Ganti sandi — Aplikasi Warkah{% endblock %}
+{% block isi %}
+
+<h1>Ganti Sandi</h1>
+<p class="jelas">Untuk akun <strong>{{ pengguna.nama }}</strong> ({{ pengguna.username }}).</p>
+
+<div class="kartu" style="max-width:460px">
+  {% if sukses %}
+    <div class="pesan sukses">Sandi berhasil diganti.</div>
+  {% endif %}
+  {% if galat %}
+    <div class="pesan awas">{{ galat }}</div>
+  {% endif %}
+
+  <form method="post" action="/ganti-sandi">
+    <div class="bidang-isian" style="margin-bottom:12px">
+      <label for="sandi_lama">Sandi lama</label>
+      <input type="password" id="sandi_lama" name="sandi_lama" autocomplete="current-password"
+             required class="lebar-penuh">
+    </div>
+    <div class="bidang-isian" style="margin-bottom:12px">
+      <label for="sandi_baru">Sandi baru</label>
+      <input type="password" id="sandi_baru" name="sandi_baru" autocomplete="new-password"
+             minlength="8" required class="lebar-penuh">
+      <span class="kecil redup">Minimal 8 karakter.</span>
+    </div>
+    <div class="bidang-isian" style="margin-bottom:18px">
+      <label for="sandi_ulang">Ulangi sandi baru</label>
+      <input type="password" id="sandi_ulang" name="sandi_ulang" autocomplete="new-password"
+             minlength="8" required class="lebar-penuh">
+    </div>
+    <button type="submit">Simpan sandi baru</button>
+  </form>
+</div>
+
+{% endblock %}

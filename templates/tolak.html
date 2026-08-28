@@ -1,0 +1,15 @@
+{% extends "dasar.html" %}
+{% block judul %}Tidak diizinkan — Aplikasi Warkah{% endblock %}
+{% block isi %}
+
+<div class="kartu" style="max-width:520px; margin-top:40px">
+  <h1>Tidak diizinkan</h1>
+  <p class="jelas">{{ pesan }}</p>
+  <p class="kecil redup">
+    Anda masuk sebagai <strong>{{ pengguna.nama }}</strong> dengan peran
+    <strong>{{ pengguna.peran }}</strong>. Hubungi Admin bila memerlukan akses ini.
+  </p>
+  <a href="/" class="tombol kedua">Kembali ke beranda</a>
+</div>
+
+{% endblock %}

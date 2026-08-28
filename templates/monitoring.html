@@ -1,0 +1,207 @@
+{% extends "dasar.html" %}
+{% block judul %}Monitoring — Aplikasi Warkah{% endblock %}
+{% block isi %}
+
+<h1>Monitoring Inventarisasi</h1>
+<p class="jelas">Capaian pemeriksaan per kecamatan dan per petugas. Angka bergerak sendiri
+  setiap kali pemeriksaan disimpan di halaman detail bidang.</p>
+
+<div class="tab">
+  <a href="/monitoring" class="aktif">Rekap</a>
+  <a href="/monitoring/desa">Penugasan per desa</a>
+</div>
+
+<div class="kartu">
+  <form class="saring" method="get" action="/monitoring">
+    <div class="bidang-isian">
+      <label for="dari">Tanggal periksa dari</label>
+      <input type="date" id="dari" name="dari" value="{{ dari }}"
+             min="{{ batas_awal }}" max="{{ batas_akhir }}">
+    </div>
+    <div class="bidang-isian">
+      <label for="sampai">Sampai</label>
+      <input type="date" id="sampai" name="sampai" value="{{ sampai }}"
+             min="{{ batas_awal }}" max="{{ batas_akhir }}">
+    </div>
+    <div class="bidang-isian">
+      <label>&nbsp;</label>
+      <div style="display:flex; gap:6px; flex-wrap:wrap">
+        <button type="submit">Terapkan</button>
+        <a href="/monitoring" class="tombol kedua">Semua periode</a>
+        <a class="tombol kedua" href="/monitoring/laporan.pdf?dari={{ dari }}&amp;sampai={{ sampai }}"
+           target="_blank" rel="noopener">PDF semua petugas</a>
+      </div>
+    </div>
+    <div class="bidang-isian isian-lebar">
+      <label>&nbsp;</label>
+      <p class="kecil redup" style="margin:6px 0 0">
+        Periode terpakai: <strong>{{ teks_periode }}</strong>.
+        {% if dari or sampai %}Kolom <em>Diperiksa</em> dan seluruh rekap petugas hanya
+        menghitung pemeriksaan dengan tanggal di dalam periode ini; pemeriksaan tanpa
+        tanggal tidak ikut.{% else %}Isi tanggal untuk membatasi rekap pada satu
+        rentang waktu.{% endif %}
+      </p>
+    </div>
+  </form>
+</div>
+
+<div class="kartu rapat" style="margin-bottom:18px">
+  <div style="padding:16px 16px 0"><h2>Rekap per kecamatan</h2></div>
+  <div class="gulir">
+    <table>
+      <thead>
+        <tr>
+          <th>Kelompok</th><th>Kecamatan</th>
+          <th class="angka">Desa</th><th class="angka">Bidang</th>
+          <th class="angka">Diperiksa</th><th class="angka">Sisa</th>
+          <th style="width:180px">Progres</th>
+          <th class="angka">Ada lokasi simpan</th>
+        </tr>
+      </thead>
+      <tbody>
+      {% set ns = namespace(desa=0, bidang=0, periksa=0, lokasi=0) %}
+      {% for r in kec %}
+        {% set ns.desa = ns.desa + r.desa %}
+        {% set ns.bidang = ns.bidang + r.bidang %}
+        {% set ns.periksa = ns.periksa + (r.diperiksa or 0) %}
+        {% set ns.lokasi = ns.lokasi + (r.berlokasi or 0) %}
+        <tr>
+          <td><span class="tanda abu">{{ r.kelompok }}</span></td>
+          <td><a href="/katalog?kecamatan={{ r.nama_kecamatan | urlencode }}">{{ r.nama_kecamatan }}</a></td>
+          <td class="angka">{{ r.desa | angka }}</td>
+          <td class="angka">{{ r.bidang | angka }}</td>
+          <td class="angka">{{ (r.diperiksa or 0) | angka }}</td>
+          <td class="angka">{{ (r.bidang - (r.diperiksa or 0)) | angka }}</td>
+          <td>
+            {% set p = persen(r.diperiksa or 0, r.bidang) %}
+            <div style="display:flex; align-items:center; gap:8px">
+              <div class="batang {{ 'sedikit' if p < 50 }}" style="flex:1"><span style="width:{{ '%.1f' % p }}%"></span></div>
+              <span class="kecil nowrap">{{ '%.1f' % p }}%</span>
+            </div>
+          </td>
+          <td class="angka">{{ (r.berlokasi or 0) | angka }}</td>
+        </tr>
+      {% endfor %}
+        <tr class="total">
+          <td colspan="2">TOTAL</td>
+          <td class="angka">{{ ns.desa | angka }}</td>
+          <td class="angka">{{ ns.bidang | angka }}</td>
+          <td class="angka">{{ ns.periksa | angka }}</td>
+          <td class="angka">{{ (ns.bidang - ns.periksa) | angka }}</td>
+          <td>{{ '%.1f' % persen(ns.periksa, ns.bidang) }}%</td>
+          <td class="angka">{{ ns.lokasi | angka }}</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="kartu rapat">
+  <div style="padding:16px 16px 0">
+    <h2>Rekap per petugas</h2>
+    <p class="jelas">Dihitung dari <strong>siapa yang mengisi pemeriksaan</strong> pada tiap bidang
+      (kolom Petugas di halaman detail), bukan dari penugasan desa, dan mengikuti periode
+      yang dipilih di atas. Kolom penugasan hanya pembanding target sehingga tidak ikut
+      disaring tanggal. Tombol <strong>PDF</strong> mencetak laporan petugas itu sesuai periode.</p>
+  </div>
+  <div class="gulir">
+    <table>
+      <thead>
+        <tr>
+          <th>Petugas</th>
+          <th class="angka">Bidang diperiksa</th>
+          <th class="angka">Desa</th>
+          <th class="angka">Kecamatan</th>
+          <th>Rentang tanggal periksa</th>
+          <th class="angka">Hari kerja</th>
+          <th class="angka">Desa ditugaskan</th>
+          <th class="angka">Desa selesai</th>
+          <th style="width:150px">Progres desa tugas</th>
+          <th>Laporan</th>
+        </tr>
+      </thead>
+      <tbody>
+      {% set ns = namespace(periksa=0) %}
+      {% for r in ptg %}
+        {% set ns.periksa = ns.periksa + r.diperiksa %}
+        <tr>
+          <td>
+            <strong>{{ r.nama }}</strong>
+            {% if not r.terdaftar %}<span class="tanda abu" title="Nama ini tidak ada di daftar petugas">luar daftar</span>
+            {% elif not r.aktif %}<span class="tanda abu">nonaktif</span>{% endif %}
+          </td>
+          <td class="angka">
+            {% if r.diperiksa %}
+              <a href="/katalog?petugas={{ r.nama | urlencode }}&amp;periksa=sudah">{{ r.diperiksa | angka }}</a>
+            {% else %}0{% endif %}
+          </td>
+          <td class="angka">{{ r.desa | angka }}</td>
+          <td class="angka">{{ r.kecamatan | angka }}</td>
+          <td class="kecil nowrap">
+            {% if r.tgl_awal and r.tgl_akhir %}
+              {{ r.tgl_awal }}{% if r.tgl_akhir != r.tgl_awal %} &ndash; {{ r.tgl_akhir }}{% endif %}
+              {% if r.tanpa_tanggal %}<span class="tanda abu" title="{{ r.tanpa_tanggal }} bidang diperiksa tanpa tanggal">+{{ r.tanpa_tanggal }} tanpa tgl</span>{% endif %}
+            {% elif r.diperiksa %}<span class="redup">tanpa tanggal</span>
+            {% else %}<span class="redup">&mdash;</span>{% endif %}
+          </td>
+          <td class="angka">{{ r.hari | angka }}</td>
+          <td class="angka">
+            {% if r.desa_tugas %}
+              <a href="/monitoring/desa?petugas={{ r.nama | urlencode }}">{{ r.desa_tugas | angka }}</a>
+            {% else %}0{% endif %}
+          </td>
+          <td class="angka">{{ r.desa_selesai | angka }}</td>
+          <td>
+            {% if r.bidang_tugas %}
+              {% set p = persen(r.periksa_tugas, r.bidang_tugas) %}
+              <div style="display:flex; align-items:center; gap:8px">
+                <div class="batang {{ 'sedikit' if p < 50 }}" style="flex:1"><span style="width:{{ '%.1f' % p }}%"></span></div>
+                <span class="kecil nowrap">{{ '%.1f' % p }}%</span>
+              </div>
+              <span class="kecil redup">{{ r.periksa_tugas | angka }} / {{ r.bidang_tugas | angka }} bidang</span>
+            {% else %}<span class="kecil redup">belum ada penugasan</span>{% endif %}
+          </td>
+          <td class="nowrap">
+            <a class="tombol kecil kedua"
+               href="/monitoring/laporan.pdf?petugas={{ r.nama | urlencode }}&amp;dari={{ dari }}&amp;sampai={{ sampai }}"
+               target="_blank" rel="noopener">PDF</a>
+          </td>
+        </tr>
+        {% if r.daftar_desa %}
+        <tr>
+          <td></td>
+          <td colspan="9" style="padding-top:0">
+            <span class="kecil redup">Desa yang diperiksa:</span>
+            <div style="display:flex; flex-wrap:wrap; gap:6px; margin-top:4px">
+              {% for d in r.daftar_desa %}
+                <a class="tanda abu" style="text-decoration:none"
+                   href="/katalog?desa={{ d.wilayah_id }}&amp;petugas={{ r.nama | urlencode }}&amp;periksa=sudah"
+                   title="Kec. {{ d.nama_kecamatan }} &middot; kode {{ d.kode_desa }} &middot; {{ d.tgl_awal or 'tanpa tanggal' }}{% if d.tgl_akhir and d.tgl_akhir != d.tgl_awal %} s/d {{ d.tgl_akhir }}{% endif %}">
+                  {{ d.nama_desa }}{% if d.kembar %} <span class="redup">({{ d.kode_desa }})</span>{% endif %} <strong>{{ d.bidang | angka }}</strong>
+                </a>
+              {% endfor %}
+            </div>
+          </td>
+        </tr>
+        {% endif %}
+      {% endfor %}
+        <tr class="total">
+          <td>TOTAL</td>
+          <td class="angka">{{ ns.periksa | angka }}</td>
+          <td colspan="8"></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+  <p class="kecil redup" style="padding:12px 16px; margin:0">
+    {% if tanpa_petugas %}
+      <strong>{{ tanpa_petugas | angka }}</strong> bidang sudah diperiksa tetapi kolom petugasnya kosong,
+      sehingga belum masuk hitungan di atas.
+    {% else %}
+      Semua bidang yang sudah diperiksa tercatat petugasnya.
+    {% endif %}
+    Target per desa diatur di <a href="/monitoring/desa">Penugasan per desa</a>.
+  </p>
+</div>
+
+{% endblock %}

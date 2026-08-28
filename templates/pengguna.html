@@ -1,0 +1,118 @@
+{% extends "dasar.html" %}
+{% block judul %}Pengguna — Aplikasi Warkah{% endblock %}
+{% block isi %}
+
+<h1>Pengguna</h1>
+<p class="jelas">Kelola akun petugas dan admin. Hanya Admin yang bisa membuka halaman ini.</p>
+
+{% if sandi_baru %}
+  <div class="pesan sukses">
+    Sandi baru untuk <strong>{{ untuk }}</strong>:
+    <span class="mono" style="font-size:16px; letter-spacing:1px">{{ sandi_baru }}</span>
+    — catat dan sampaikan sekarang, sandi ini tidak ditampilkan lagi.
+  </div>
+{% endif %}
+
+<div class="kartu">
+  <h2>Tambah akun</h2>
+  <form method="post" action="/pengguna/simpan">
+    <input type="hidden" name="aksi" value="tambah">
+    <div class="baris-borang">
+      <div class="bidang-isian">
+        <label for="nama">Nama lengkap</label>
+        <input type="text" id="nama" name="nama" required placeholder="mis. Siti Rahma">
+      </div>
+      <div class="bidang-isian">
+        <label for="username">Nama pengguna</label>
+        <input type="text" id="username" name="username" required placeholder="mis. siti">
+      </div>
+      <div class="bidang-isian">
+        <label for="peran">Peran</label>
+        <select id="peran" name="peran">
+          {% for p in peran %}<option value="{{ p }}">{{ p }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="bidang-isian">
+        <label>&nbsp;</label>
+        <button type="submit">Buat akun</button>
+      </div>
+    </div>
+    <p class="kecil redup" style="margin:0">
+      Sandi awal dibuat acak dan ditampilkan satu kali setelah akun tersimpan.
+      Nama yang sama dengan akun lama akan diperbarui, bukan digandakan.
+    </p>
+  </form>
+</div>
+
+<div class="kartu rapat">
+  <div class="gulir">
+    <table>
+      <thead>
+        <tr>
+          <th>Nama</th><th>Nama pengguna</th><th>Peran</th><th>Status</th>
+          <th class="angka">Desa ditugaskan</th><th>Terakhir masuk</th><th>Tindakan</th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for r in baris %}
+        <tr>
+          <td><strong>{{ r.nama }}</strong></td>
+          <td class="mono">{{ r.username or '—' }}</td>
+          <td>
+            {% if r.username %}
+              <form method="post" action="/pengguna/simpan" style="display:flex; gap:6px">
+                <input type="hidden" name="aksi" value="peran">
+                <input type="hidden" name="username" value="{{ r.username }}">
+                <select name="peran" onchange="this.form.submit()">
+                  {% for p in peran %}
+                    <option value="{{ p }}" {{ 'selected' if r.peran == p }}>{{ p }}</option>
+                  {% endfor %}
+                </select>
+              </form>
+            {% else %}
+              <span class="tanda abu">{{ r.peran }}</span>
+            {% endif %}
+          </td>
+          <td>
+            {% if not r.username %}
+              <span class="tanda abu">belum punya akun</span>
+            {% elif r.aktif %}
+              <span class="tanda hijau">Aktif</span>
+            {% else %}
+              <span class="tanda merah">Nonaktif</span>
+            {% endif %}
+          </td>
+          <td class="angka">{{ r.desa | angka }}</td>
+          <td class="kecil redup">{{ r.terakhir_masuk or 'belum pernah' }}</td>
+          <td class="nowrap">
+            {% if r.username %}
+              <form method="post" action="/pengguna/simpan" style="display:inline">
+                <input type="hidden" name="aksi" value="sandi">
+                <input type="hidden" name="username" value="{{ r.username }}">
+                <button type="submit" class="kecil kedua">Atur ulang sandi</button>
+              </form>
+              <form method="post" action="/pengguna/simpan" style="display:inline">
+                <input type="hidden" name="aksi" value="{{ 'nonaktif' if r.aktif else 'aktif' }}">
+                <input type="hidden" name="username" value="{{ r.username }}">
+                <button type="submit" class="kecil {{ 'merah' if r.aktif else 'hijau' }}">
+                  {{ 'Nonaktifkan' if r.aktif else 'Aktifkan' }}
+                </button>
+              </form>
+            {% else %}
+              <span class="kecil redup">buat akun lewat borang di atas dengan nama yang sama</span>
+            {% endif %}
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<p class="kecil redup">
+  Akun yang dinonaktifkan tidak bisa masuk, tetapi catatan pemeriksaan dan penugasan
+  atas namanya tetap tersimpan. Admin aktif terakhir tidak bisa dinonaktifkan atau
+  diturunkan perannya.
+</p>
+
+{% endblock %}

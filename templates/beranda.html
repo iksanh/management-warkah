@@ -1,0 +1,142 @@
+{% extends "dasar.html" %}
+{% block judul %}Beranda — Aplikasi Warkah{% endblock %}
+{% block isi %}
+
+<h1>Beranda</h1>
+<p class="jelas">Ringkasan koleksi arsip, sirkulasi peminjaman, dan capaian inventarisasi.</p>
+
+<div class="kisi k6" style="margin-bottom:18px">
+  <div class="angka-kotak">
+    <div class="nilai">{{ ringkas.bidang | angka }}</div>
+    <div class="label">Bidang / Buku Tanah</div>
+  </div>
+  <div class="angka-kotak">
+    <div class="nilai">{{ ringkas.desa | angka }}</div>
+    <div class="label">Desa / Kelurahan</div>
+  </div>
+  <div class="angka-kotak">
+    <div class="nilai">{{ ringkas.kecamatan | angka }}</div>
+    <div class="label">Kecamatan</div>
+  </div>
+  <div class="angka-kotak ungu">
+    <div class="nilai">{{ ringkas.berlokasi | angka }}</div>
+    <div class="label">Sudah Ada Lokasi Simpan</div>
+  </div>
+  <div class="angka-kotak hijau">
+    <div class="nilai">{{ ringkas.diperiksa | angka }}</div>
+    <div class="label">Sudah Diperiksa</div>
+  </div>
+  <div class="angka-kotak oranye">
+    <div class="nilai">{{ ringkas.dipinjam | angka }}</div>
+    <div class="label">Sedang Dipinjam</div>
+  </div>
+</div>
+
+<div class="kisi k2">
+
+  <div class="kartu">
+    <h2>Koleksi menurut jenis hak</h2>
+    <table>
+      <thead><tr><th>Jenis Hak</th><th class="angka">Jumlah</th><th style="width:35%">Porsi</th></tr></thead>
+      <tbody>
+      {% for r in per_hak %}
+        <tr>
+          <td>{{ r.nama }}</td>
+          <td class="angka">{{ r.n | angka }}</td>
+          <td>
+            {% set p = persen(r.n, ringkas.bidang) %}
+            <div class="batang"><span style="width:{{ '%.1f' % p }}%"></span></div>
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    <p class="kecil redup" style="margin:10px 0 0">
+      Jenis hak selain Hak Milik sudah disiapkan strukturnya, tinggal ditarik datanya.
+    </p>
+  </div>
+
+  <div class="kartu">
+    <h2>Kualitas data (KW)</h2>
+    <table>
+      <thead><tr><th>KW</th><th class="angka">Jumlah</th><th style="width:35%">Porsi</th></tr></thead>
+      <tbody>
+      {% for r in per_kw %}
+        <tr>
+          <td class="{{ 'kw1' if r.kw == 'KW1' else 'kwx' }}">{{ r.kw }}</td>
+          <td class="angka">{{ r.n | angka }}</td>
+          <td>
+            {% set p = persen(r.n, ringkas.bidang) %}
+            <div class="batang {{ 'sedikit' if r.kw != 'KW1' }}"><span style="width:{{ '%.1f' % p }}%"></span></div>
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <div class="kartu">
+    <h2>Peminjaman lewat jatuh tempo</h2>
+    {% if telat %}
+      <table>
+        <thead><tr><th>Nomor Hak</th><th>Desa</th><th>Peminjam</th><th>Jatuh Tempo</th></tr></thead>
+        <tbody>
+        {% for r in telat %}
+          <tr>
+            <td><a href="/bidang/{{ r.id }}" class="mono">{{ r.nomor_hak }}</a></td>
+            <td>{{ r.nama_desa }}</td>
+            <td>{{ r.peminjam }}</td>
+            <td><span class="tanda merah">{{ r.jatuh_tempo }}</span></td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+      <p style="margin:12px 0 0"><a href="/sirkulasi?tampil=telat" class="tombol kecil kedua">Lihat semua</a></p>
+    {% else %}
+      <div class="kosong">Tidak ada peminjaman yang lewat jatuh tempo.</div>
+    {% endif %}
+  </div>
+
+  <div class="kartu">
+    <h2>Kecamatan dengan koleksi terbanyak</h2>
+    <table>
+      <thead><tr><th>Kecamatan</th><th>Kelompok</th><th class="angka">Bidang</th></tr></thead>
+      <tbody>
+      {% for r in top_kec %}
+        <tr>
+          <td><a href="/katalog?kecamatan={{ r.nama_kecamatan | urlencode }}">{{ r.nama_kecamatan }}</a></td>
+          <td><span class="tanda abu">{{ r.kelompok }}</span></td>
+          <td class="angka">{{ r.n | angka }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+</div>
+
+<div class="kartu">
+  <h2>Aktivitas terakhir</h2>
+  {% if aktivitas %}
+    <table>
+      <thead><tr><th>Waktu</th><th>Petugas</th><th>Aksi</th><th>Rincian</th></tr></thead>
+      <tbody>
+      {% for a in aktivitas %}
+        <tr>
+          <td class="nowrap kecil">{{ a.waktu }}</td>
+          <td>{{ a.petugas or '—' }}</td>
+          <td>{{ a.aksi }}</td>
+          <td class="redup">
+            {% if a.bidang_id %}<a href="/bidang/{{ a.bidang_id }}">bidang #{{ a.bidang_id }}</a>{% endif %}
+            {{ a.rincian or '' }}
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <div class="kosong">Belum ada aktivitas tercatat.</div>
+  {% endif %}
+</div>
+
+{% endblock %}

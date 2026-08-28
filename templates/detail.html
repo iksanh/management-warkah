@@ -1,0 +1,218 @@
+{% extends "dasar.html" %}
+{% block judul %}{{ d.nomor_hak }} — Aplikasi Warkah{% endblock %}
+{% block isi %}
+
+{% set daftar_pesan = {'tersimpan': ('sukses', 'Perubahan tersimpan.'),
+                       'dipinjam': ('sukses', 'Peminjaman tercatat.'),
+                       'masih-dipinjam': ('awas', 'Warkah ini masih dalam status dipinjam.')} %}
+{% set pesan = daftar_pesan.get(request.query_params.get('pesan')) %}
+{% if pesan %}<div class="pesan {{ pesan[0] }}">{{ pesan[1] }}</div>{% endif %}
+
+<p class="kecil"><a href="/katalog">‹ Kembali ke katalog</a></p>
+<h1 class="mono">{{ d.nomor_hak }}</h1>
+<p class="jelas">
+  {{ d.nama_hak }} · {{ d.nama_desa }}, Kec. {{ d.nama_kecamatan }}
+  <span class="tanda abu">{{ d.kelompok }}</span>
+  {% if b.pinjam_id %}
+    <span class="tanda {{ 'merah' if b.jatuh_tempo and b.jatuh_tempo < hari_ini else 'oranye' }}">Sedang dipinjam</span>
+  {% else %}
+    <span class="tanda hijau">Tersedia</span>
+  {% endif %}
+</p>
+
+<div class="kisi k2">
+
+  <div class="kartu">
+    <h2>Data bidang</h2>
+    <dl class="rincian">
+      <dt>Nomor hak</dt><dd class="mono">{{ d.nomor_hak }}</dd>
+      <dt>Jenis hak</dt><dd>{{ d.nama_hak }} <span class="redup kecil">({{ d.jenis_hak }})</span></dd>
+      <dt>Surat ukur</dt><dd>{{ d.surat_ukur or '—' }}</dd>
+      <dt>NIB</dt><dd class="mono">{{ d.nib or '—' }}</dd>
+      <dt>Luas</dt><dd>{{ d.luas | angka if d.luas else '—' }} m²</dd>
+      <dt>Produk</dt><dd>{{ d.produk or '—' }}</dd>
+      <dt>KW</dt><dd class="{{ 'kw1' if d.kw == 'KW1' else 'kwx' }}">{{ d.kw or '—' }}</dd>
+      <dt>Blokir internal</dt><dd>{{ d.blokir_internal or '—' }}</dd>
+      <dt>Pemilik pertama</dt><dd>{{ d.pemilik_pertama or '—' }}</dd>
+      <dt>Pemilik terakhir</dt><dd>{{ d.pemilik_akhir or '—' }}</dd>
+      <dt>Desa</dt><dd>{{ d.nama_desa }} <span class="redup kecil mono">{{ d.kode_desa }}</span></dd>
+      <dt>Kecamatan</dt><dd>{{ d.nama_kecamatan }}</dd>
+    </dl>
+    <p class="kecil redup" style="margin:14px 0 0">
+      Data di atas berasal dari aplikasi KKP dan tidak diubah dari sini.
+    </p>
+  </div>
+
+  <div class="kartu">
+    <h2>Sirkulasi</h2>
+    {% if b.pinjam_id %}
+      <dl class="rincian">
+        <dt>Peminjam</dt><dd>{{ b.peminjam }}</dd>
+        <dt>Tanggal pinjam</dt><dd>{{ b.tanggal_pinjam }}</dd>
+        <dt>Jatuh tempo</dt>
+        <dd>
+          {% if b.jatuh_tempo %}
+            <span class="tanda {{ 'merah' if b.jatuh_tempo < hari_ini else 'oranye' }}">{{ b.jatuh_tempo }}</span>
+          {% else %}—{% endif %}
+        </dd>
+      </dl>
+      <form method="post" action="/pinjam/{{ b.pinjam_id }}/kembali" style="margin-top:14px">
+        <div class="baris-borang">
+          <div class="bidang-isian">
+            <label for="tanggal_kembali">Tanggal kembali</label>
+            <input type="date" id="tanggal_kembali" name="tanggal_kembali" value="{{ hari_ini }}">
+          </div>
+          <div class="bidang-isian" style="grid-column:span 2">
+            <label for="catatan_kembali">Catatan pengembalian</label>
+            <input type="text" id="catatan_kembali" name="catatan_kembali" placeholder="kondisi saat kembali, dll">
+          </div>
+        </div>
+        <button type="submit" class="hijau">Catat pengembalian</button>
+      </form>
+    {% else %}
+      <form method="post" action="/bidang/{{ b.id }}/pinjam">
+        <div class="baris-borang">
+          <div class="bidang-isian">
+            <label for="peminjam">Nama peminjam *</label>
+            <input type="text" id="peminjam" name="peminjam" required>
+          </div>
+          <div class="bidang-isian">
+            <label for="unit">Unit / instansi</label>
+            <input type="text" id="unit" name="unit" placeholder="mis. Seksi Penetapan Hak">
+          </div>
+          <div class="bidang-isian">
+            <label for="tanggal_pinjam">Tanggal pinjam</label>
+            <input type="date" id="tanggal_pinjam" name="tanggal_pinjam" value="{{ hari_ini }}">
+          </div>
+          <div class="bidang-isian">
+            <label for="jatuh_tempo">Jatuh tempo</label>
+            <input type="date" id="jatuh_tempo" name="jatuh_tempo" value="{{ jatuh_tempo }}">
+          </div>
+          <div class="bidang-isian" style="grid-column:span 2">
+            <label for="keperluan">Keperluan</label>
+            <input type="text" id="keperluan" name="keperluan" placeholder="mis. peralihan hak, pengecekan">
+          </div>
+        </div>
+        <button type="submit" class="oranye">Catat peminjaman</button>
+      </form>
+    {% endif %}
+
+    <h3 style="margin-top:22px">Riwayat peminjaman</h3>
+    {% if riwayat %}
+      <table>
+        <thead><tr><th>Peminjam</th><th>Pinjam</th><th>Jatuh tempo</th><th>Kembali</th><th>Petugas</th></tr></thead>
+        <tbody>
+        {% for r in riwayat %}
+          <tr>
+            <td>{{ r.peminjam }}<br><span class="kecil redup">{{ r.unit or '' }} {{ r.keperluan or '' }}</span></td>
+            <td class="nowrap kecil">{{ r.tanggal_pinjam }}</td>
+            <td class="nowrap kecil">{{ r.jatuh_tempo or '—' }}</td>
+            <td class="nowrap kecil">
+              {% if r.tanggal_kembali %}<span class="tanda hijau">{{ r.tanggal_kembali }}</span>
+              {% else %}<span class="tanda oranye">belum</span>{% endif %}
+            </td>
+            <td class="kecil">{{ r.petugas_pinjam or '—' }}</td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <div class="kosong">Belum pernah dipinjam.</div>
+    {% endif %}
+  </div>
+
+</div>
+
+<form method="post" action="/bidang/{{ b.id }}/simpan">
+  <div class="kartu">
+    <h2>Lokasi simpan &amp; hasil pemeriksaan</h2>
+
+    <div class="grup-judul ungu">Lokasi penyimpanan fisik</div>
+    <div class="baris-borang">
+      {% set s = penyimpanan %}
+      <div class="bidang-isian"><label for="ruang">Ruang</label>
+        <input type="text" id="ruang" name="ruang" value="{{ s.ruang if s and s.ruang else '' }}"></div>
+      <div class="bidang-isian"><label for="lemari">Lemari</label>
+        <input type="text" id="lemari" name="lemari" value="{{ s.lemari if s and s.lemari else '' }}"></div>
+      <div class="bidang-isian"><label for="rak">Rak</label>
+        <input type="text" id="rak" name="rak" value="{{ s.rak if s and s.rak else '' }}"></div>
+      <div class="bidang-isian"><label for="box">Box</label>
+        <input type="text" id="box" name="box" value="{{ s.box if s and s.box else '' }}"></div>
+      <div class="bidang-isian"><label for="no_urut">No. urut</label>
+        <input type="text" id="no_urut" name="no_urut" value="{{ s.no_urut if s and s.no_urut else '' }}"></div>
+      <div class="bidang-isian" style="grid-column:span 2"><label for="catatan_simpan">Catatan lokasi</label>
+        <input type="text" id="catatan_simpan" name="catatan_simpan" value="{{ s.catatan if s and s.catatan else '' }}"></div>
+    </div>
+    {% if s and s.diubah_pada %}
+      <p class="kecil redup">Terakhir diubah {{ s.diubah_pada }} oleh {{ s.diubah_oleh or '—' }}.</p>
+    {% endif %}
+
+    {% set m = pemeriksaan %}
+    {% macro pilih(nama, daftar, terpilih) %}
+      <select id="{{ nama }}" name="{{ nama }}">
+        <option value="">—</option>
+        {% for o in daftar %}<option value="{{ o }}" {{ 'selected' if terpilih == o }}>{{ o }}</option>{% endfor %}
+      </select>
+    {% endmacro %}
+
+    <div class="grup-judul hijau">Pemeriksaan buku tanah</div>
+    <div class="baris-borang">
+      <div class="bidang-isian"><label for="bt_ada">Ketersediaan</label>{{ pilih('bt_ada', pilihan.ada, m.bt_ada if m else none) }}</div>
+      <div class="bidang-isian"><label for="bt_kondisi">Kondisi</label>{{ pilih('bt_kondisi', pilihan.kondisi, m.bt_kondisi if m else none) }}</div>
+      <div class="bidang-isian"><label for="bt_sesuai">Sesuai data</label>{{ pilih('bt_sesuai', pilihan.sesuai, m.bt_sesuai if m else none) }}</div>
+    </div>
+
+    <div class="grup-judul">Pemeriksaan surat ukur</div>
+    <div class="baris-borang">
+      <div class="bidang-isian"><label for="su_ada">Ketersediaan</label>{{ pilih('su_ada', pilihan.ada, m.su_ada if m else none) }}</div>
+      <div class="bidang-isian"><label for="su_kondisi">Kondisi</label>{{ pilih('su_kondisi', pilihan.kondisi, m.su_kondisi if m else none) }}</div>
+      <div class="bidang-isian"><label for="su_sesuai">Sesuai data</label>{{ pilih('su_sesuai', pilihan.sesuai, m.su_sesuai if m else none) }}</div>
+    </div>
+
+    <div class="grup-judul oranye">Warkah</div>
+    <div class="baris-borang">
+      <div class="bidang-isian"><label for="warkah_ada">Ketersediaan</label>{{ pilih('warkah_ada', pilihan.ada, m.warkah_ada if m else none) }}</div>
+      <div class="bidang-isian"><label for="warkah_no_berkas">No. berkas warkah</label>
+        <input type="text" id="warkah_no_berkas" name="warkah_no_berkas" value="{{ m.warkah_no_berkas if m and m.warkah_no_berkas else '' }}"></div>
+    </div>
+
+    <div class="grup-judul">Hasil &amp; pelaksanaan</div>
+    <div class="baris-borang">
+      <div class="bidang-isian"><label for="status_identifikasi">Status identifikasi</label>{{ pilih('status_identifikasi', pilihan.status_identifikasi, m.status_identifikasi if m else none) }}</div>
+      <div class="bidang-isian"><label for="tindak_lanjut">Tindak lanjut</label>{{ pilih('tindak_lanjut', pilihan.tindak_lanjut, m.tindak_lanjut if m else none) }}</div>
+      <div class="bidang-isian"><label for="tempat">Tempat pemeriksaan</label>
+        <input type="text" id="tempat" name="tempat" value="{{ m.tempat if m and m.tempat else '' }}" placeholder="mis. Kantah Bone Bolango"></div>
+      <div class="bidang-isian"><label for="tanggal">Tanggal pemeriksaan</label>
+        <input type="date" id="tanggal" name="tanggal" value="{{ m.tanggal if m and m.tanggal else hari_ini }}"></div>
+      <div class="bidang-isian"><label for="petugas">Petugas pemeriksa</label>
+        {% if admin %}
+          <select id="petugas" name="petugas">
+            <option value="">—</option>
+            {% for pt in daftar_petugas %}
+              <option value="{{ pt.nama }}" {{ 'selected' if (m.petugas if m else petugas_aktif) == pt.nama }}>{{ pt.nama }}</option>
+            {% endfor %}
+          </select>
+        {% else %}
+          {# petugas biasa tidak perlu memilih: terisi otomatis dari akun yang masuk #}
+          <input type="text" id="petugas" value="{{ petugas_aktif }}" readonly
+                 title="Terisi otomatis dari akun Anda" class="terkunci">
+        {% endif %}
+      </div>
+      <div class="bidang-isian"><label for="verifikator">Verifikator</label>
+        <input type="text" id="verifikator" name="verifikator" value="{{ m.verifikator if m and m.verifikator else '' }}"></div>
+      <div class="bidang-isian"><label for="tanggal_verifikasi">Tanggal verifikasi</label>
+        <input type="date" id="tanggal_verifikasi" name="tanggal_verifikasi" value="{{ m.tanggal_verifikasi if m and m.tanggal_verifikasi else '' }}"></div>
+    </div>
+    <div class="bidang-isian" style="margin-bottom:14px">
+      <label for="catatan">Catatan pemeriksaan</label>
+      <textarea id="catatan" name="catatan" class="lebar-penuh">{{ m.catatan if m and m.catatan else '' }}</textarea>
+    </div>
+
+    <button type="submit">Simpan</button>
+    {% if m and m.diubah_pada %}
+      <span class="kecil redup" style="margin-left:10px">Terakhir disimpan {{ m.diubah_pada }}</span>
+    {% endif %}
+  </div>
+</form>
+
+{% endblock %}

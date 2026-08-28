@@ -1,0 +1,132 @@
+{% extends "dasar.html" %}
+{% block judul %}Penugasan per desa — Aplikasi Warkah{% endblock %}
+{% block isi %}
+
+<h1>Penugasan per Desa</h1>
+<p class="jelas">
+  {% if admin %}
+    Tentukan petugas dan jadwal untuk tiap desa. Kolom capaian dihitung otomatis
+    dari pemeriksaan yang sudah disimpan.
+  {% else %}
+    Daftar penugasan desa. Hanya Admin yang bisa mengubahnya — desa yang ditugaskan
+    kepada Anda ditandai hijau.
+  {% endif %}
+</p>
+
+<div class="tab">
+  <a href="/monitoring">Rekap</a>
+  <a href="/monitoring/desa" class="aktif">Penugasan per desa</a>
+</div>
+
+<div class="kartu">
+  <form class="saring" method="get" action="/monitoring/desa">
+    <div class="bidang-isian">
+      <label for="kecamatan">Kecamatan</label>
+      <select id="kecamatan" name="kecamatan">
+        <option value="">Semua</option>
+        {% for k in kecamatan %}
+          <option value="{{ k.nama_kecamatan }}" {{ 'selected' if qp.get('kecamatan') == k.nama_kecamatan }}>{{ k.nama_kecamatan }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="bidang-isian">
+      <label for="petugas">Petugas</label>
+      <select id="petugas" name="petugas">
+        <option value="">Semua</option>
+        <option value="-" {{ 'selected' if qp.get('petugas') == '-' }}>Belum ditugaskan</option>
+        {% for p in daftar_petugas %}
+          <option value="{{ p.nama }}" {{ 'selected' if qp.get('petugas') == p.nama }}>{{ p.nama }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="bidang-isian">
+      <label>&nbsp;</label>
+      <div style="display:flex; gap:6px">
+        <button type="submit">Saring</button>
+        <a href="/monitoring/desa" class="tombol kedua">Reset</a>
+      </div>
+    </div>
+  </form>
+</div>
+
+<div class="kartu rapat">
+  <div class="gulir">
+    <table>
+      <thead>
+        <tr>
+          <th>Kecamatan</th><th>Desa</th>
+          <th class="angka">Bidang</th><th class="angka">Diperiksa</th>
+          <th style="width:140px">Progres</th>
+          <th>Petugas</th><th>Mulai</th><th>Target</th><th>Selesai</th>
+          <th>Status</th><th>Kendala</th><th></th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for r in baris %}
+        <tr>
+          <td class="kecil redup nowrap">{{ r.nama_kecamatan }}<br><span class="tanda abu">{{ r.kelompok }}</span></td>
+          <td class="nowrap">
+            <a href="/katalog?kecamatan={{ r.nama_kecamatan | urlencode }}&desa={{ r.id }}">{{ r.nama_desa }}</a>
+            <br><span class="kecil redup mono">{{ r.kode_desa }}</span>
+          </td>
+          <td class="angka">{{ r.bidang | angka }}</td>
+          <td class="angka">{{ (r.diperiksa or 0) | angka }}</td>
+          <td>
+            {% set p = persen(r.diperiksa or 0, r.bidang) %}
+            <div style="display:flex; align-items:center; gap:6px">
+              <div class="batang {{ 'sedikit' if p < 50 }}" style="flex:1"><span style="width:{{ '%.1f' % p }}%"></span></div>
+              <span class="kecil nowrap">{{ '%.0f' % p }}%</span>
+            </div>
+          </td>
+          {% if admin %}
+            <td>
+              <select name="petugas" form="f{{ r.id }}">
+                <option value="">—</option>
+                {% for pt in daftar_petugas %}
+                  <option value="{{ pt.nama }}" {{ 'selected' if r.petugas == pt.nama }}>{{ pt.nama }}</option>
+                {% endfor %}
+              </select>
+            </td>
+            <td><input type="date" name="tanggal_mulai" form="f{{ r.id }}" value="{{ r.tanggal_mulai or '' }}"></td>
+            <td><input type="date" name="target_selesai" form="f{{ r.id }}" value="{{ r.target_selesai or '' }}"></td>
+            <td><input type="date" name="tanggal_selesai" form="f{{ r.id }}" value="{{ r.tanggal_selesai or '' }}"></td>
+            <td>
+              <select name="status" form="f{{ r.id }}">
+                <option value="">—</option>
+                {% for s in pilihan.status_penugasan %}
+                  <option value="{{ s }}" {{ 'selected' if r.status == s }}>{{ s }}</option>
+                {% endfor %}
+              </select>
+            </td>
+            <td><input type="text" name="kendala" form="f{{ r.id }}" value="{{ r.kendala or '' }}" style="width:150px"></td>
+            <td><button type="submit" form="f{{ r.id }}" class="kecil">Simpan</button></td>
+          {% else %}
+            {# petugas hanya melihat: penugasan diatur oleh Admin #}
+            <td>{% if r.petugas %}<span class="tanda {{ 'hijau' if r.petugas == petugas_aktif else 'abu' }}">{{ r.petugas }}</span>{% else %}<span class="redup">—</span>{% endif %}</td>
+            <td class="kecil nowrap">{{ r.tanggal_mulai or '—' }}</td>
+            <td class="kecil nowrap">{{ r.target_selesai or '—' }}</td>
+            <td class="kecil nowrap">{{ r.tanggal_selesai or '—' }}</td>
+            <td class="kecil">{{ r.status or '—' }}</td>
+            <td class="kecil">{{ r.kendala or '—' }}</td>
+            <td></td>
+          {% endif %}
+        </tr>
+      {% else %}
+        <tr><td colspan="12" class="kosong">Tidak ada desa yang cocok dengan saringan.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{# Elemen <form> tidak boleh berada di dalam <tr>, jadi diletakkan di luar tabel
+   dan dirujuk oleh tiap isian lewat atribut form="fN". #}
+<div hidden>
+  {% for r in baris if admin %}
+    <form method="post" action="/penugasan/{{ r.id }}" id="f{{ r.id }}">
+      <input type="hidden" name="kembali_ke" value="{{ path }}{{ '?' ~ request.url.query if request.url.query else '' }}">
+    </form>
+  {% endfor %}
+</div>
+
+{% endblock %}

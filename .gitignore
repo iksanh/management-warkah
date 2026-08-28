@@ -1,0 +1,19 @@
+warkah.db
+warkah.db-wal
+warkah.db-shm
+rahasia.txt
+unggahan/
+*.xlsx
+*.csv
+
+# kredensial AWS
+*.pem
+kepercayaan.json
+
+# berkas sementara
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+server.log
+*.log
