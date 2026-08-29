@@ -3,7 +3,14 @@ import os
 import sqlite3
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DB_PATH = os.path.join(BASE_DIR, "warkah.db")
+
+# Letak berkas basis data. Di server diarahkan ke volume data lewat peubah
+# lingkungan WARKAH_DB (mis. /var/lib/warkah/warkah.db) supaya tidak perlu
+# mengubah isi berkas ini dan tidak bergantung pada symlink di folder rilis.
+# Bila peubahnya tidak diisi, dipakai warkah.db di samping app.py seperti
+# sebelumnya, sehingga jalannya di komputer sendiri tidak berubah.
+DB_PATH = os.path.abspath(os.path.expanduser(
+    os.environ.get("WARKAH_DB") or os.path.join(BASE_DIR, "warkah.db")))
 
 JENIS_HAK = [
     ("BT1", "Hak Milik"),
@@ -290,6 +297,15 @@ def migrasi(kon):
 
 def siapkan():
     """Buat tabel bila belum ada, lalu isi tabel acuan."""
+    # SQLite hanya berkata "unable to open database file" bila foldernya tidak
+    # ada, yang menyesatkan saat WARKAH_DB salah tulis; jadi diperiksa di sini
+    # karena siapkan() memang dijalankan sekali sebelum aplikasi naik
+    folder = os.path.dirname(DB_PATH)
+    if folder and not os.path.isdir(folder):
+        raise SystemExit(
+            "folder basis data tidak ada: %s\n"
+            "periksa peubah lingkungan WARKAH_DB (sekarang: %s)"
+            % (folder, os.environ.get("WARKAH_DB") or "(tidak diisi)"))
     kon = sambung()
     kon.executescript(SKEMA)
     migrasi(kon)
@@ -304,7 +320,8 @@ def siapkan():
 
 if __name__ == "__main__":
     kon = siapkan()
-    print("basis data siap:", DB_PATH)
+    print("basis data siap:", DB_PATH,
+          "(dari WARKAH_DB)" if os.environ.get("WARKAH_DB") else "(bawaan)")
     for t in ("wilayah", "bidang", "penyimpanan", "pemeriksaan", "peminjaman",
               "penugasan", "petugas", "jenis_hak", "rekap_kkp", "residu",
               "tipologi"):

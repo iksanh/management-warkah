@@ -94,7 +94,21 @@ Baca bagian ini lebih dulu — lima hal berikut adalah sumber kesalahan paling s
 **a. `warkah.db` tidak boleh ikut ter-deploy.**
 Basis data berisi seluruh data kerja (penyimpanan, pemeriksaan, peminjaman, penugasan).
 Bila ikut disalin dari repo, data lapangan hilang tertimpa. Basis data disimpan di
-`/var/lib/warkah/warkah.db` (volume EBS terpisah) lalu **di-symlink** ke setiap rilis.
+`/var/lib/warkah/warkah.db` (volume EBS terpisah), di luar folder rilis.
+
+Letaknya ditunjuk lewat peubah lingkungan pada unit systemd, tanpa perlu mengubah
+isi `db.py`:
+
+```ini
+Environment=WARKAH_DB=/var/lib/warkah/warkah.db
+```
+
+Bila `WARKAH_DB` tidak diisi, `db.py` memakai `warkah.db` di samping `app.py` seperti
+saat dijalankan di komputer sendiri. Cara lama — **symlink** `warkah.db` ke tiap rilis —
+masih berlaku dan boleh dipakai bersamaan; bila keduanya ada, `WARKAH_DB` yang menang.
+Folder tujuannya harus sudah ada: `db.siapkan()` berhenti dengan pesan yang menyebut
+`WARKAH_DB` bila foldernya tidak ditemukan, supaya salah tulis ketahuan saat deploy
+dan bukan berupa galat `unable to open database file` yang membingungkan.
 
 **b. `rahasia.txt` juga data, bukan kode.**
 Berkas ini kunci penanda tangan cookie sesi (`auth.kunci_rahasia`, dipakai di
@@ -619,6 +633,10 @@ Group=warkah
 WorkingDirectory=/opt/warkah/current
 Environment="PYTHONUNBUFFERED=1"
 Environment="TZ=Asia/Makassar"
+
+# letak basis data & folder salinan unggahan, di luar folder rilis (bagian 2a & 2d)
+Environment="WARKAH_DB=/var/lib/warkah/warkah.db"
+Environment="WARKAH_UNGGAHAN=/var/lib/warkah/unggahan"
 
 # skema/migrasi dijalankan sebelum aplikasi naik (lihat bagian 2c)
 ExecStartPre=/opt/warkah/venv/bin/python -c "import db; db.siapkan().close()"
@@ -1621,7 +1639,7 @@ sudo systemctl restart warkah             # muat ulang
 | `attempt to write a readonly database` | Kepemilikan salah: `sudo chown warkah:warkah /var/lib/warkah/warkah.db*` — perhatikan berkas `-wal` dan `-shm` juga |
 | `database is locked` berulang | Turunkan ke `--workers 1` di `warkah.service` |
 | Semua pengguna terlempar keluar setelah deploy | `rahasia.txt` berganti. Pastikan symlink ke `/var/lib/warkah/rahasia.txt` masih ada |
-| Data kembali ke kondisi lama setelah deploy | `warkah.db` ikut ter-deploy dari repo. Periksa `.gitignore` dan `ls -l /opt/warkah/current/warkah.db` (harus symlink) |
+| Data kembali ke kondisi lama setelah deploy | `warkah.db` ikut ter-deploy dari repo. Periksa `.gitignore`, lalu pastikan `WARKAH_DB` menunjuk `/var/lib/warkah/warkah.db` — bandingkan dengan keluaran `python -c "import db; print(db.DB_PATH)"` |
 | Tampilan CSS tidak berubah | `versi_gaya()` membaca *mtime* `static/style.css`; setelah deploy *mtime*-nya baru, cukup muat ulang paksa (`Ctrl+F5`) |
 | Situs tidak bisa dibuka dari kantor | Cek Security Group (port 443 & IP kantor), lalu `sudo systemctl status nginx`. Bila IP publik kantor berubah, perbarui aturan SG |
 | Certbot gagal perpanjang | Port 80 harus tetap terbuka `0.0.0.0/0`. Uji: `sudo certbot renew --dry-run` |
@@ -1680,7 +1698,9 @@ df -h /var/lib/warkah
 **Aplikasi**
 
 - [ ] `/var/lib/warkah/warkah.db` dan `rahasia.txt` ada, milik `warkah`, mode 640/600
-- [ ] `ls -l /opt/warkah/current/warkah.db` menunjukkan **symlink** ke `/var/lib/warkah/`
+- [ ] `sudo systemctl show warkah -p Environment` memuat `WARKAH_DB=/var/lib/warkah/warkah.db`
+      (atau, bila masih memakai cara lama, `ls -l /opt/warkah/current/warkah.db` menunjukkan
+      **symlink** ke `/var/lib/warkah/`)
 - [ ] `sudo systemctl is-enabled warkah` → `enabled`
 - [ ] `curl -I https://warkah.contoh.go.id/masuk` → `200`
 - [ ] `sudo certbot renew --dry-run` berhasil
