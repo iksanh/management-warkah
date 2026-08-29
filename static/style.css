@@ -381,6 +381,50 @@ input.isian-catatan { width: 160px; padding: 4px 6px; font-size: 12px; }
   th.tengah, td.tengah { padding-left: 6px; padding-right: 6px; }
   button, .tombol { padding: 10px 16px; }
   .gulir { max-height: none; }
+
+  /* RESIDU: perlakuan yang sama seperti katalog, tetapi kolom centangnya ada
+     di tabel tersendiri (#tabel-residu) karena borang centang halaman residu
+     ditaruh di luar tabel — baris rincian di dalam tabel sudah punya borang
+     sendiri, dan borang bersarang tidak sah di HTML.
+     Kolom yang tersisa setelah .kol-opsional disembunyikan:
+     1 Blanko · 2 Nomor Hak · 5 Desa · 7 Pemegang · 10 Tipologi · 11 Status · 12 Rinci */
+  #tabel-residu { table-layout: fixed; }
+  #tabel-residu th { white-space: normal; overflow-wrap: anywhere; }
+  /* judul kolom centang jangan ikut dipenggal di tengah kata jadi "BLA NKO" */
+  #tabel-residu thead th.kol-centang { overflow-wrap: normal; }
+  /* persen di bawah diambil dari lebar isi yang sebenarnya pada layar 800px:
+     label status terlebar ("Blanko belum dicek") 116px, label tipologi 39px,
+     tombol Ubah 51px, judul kolom centang 95px. Kalau status atau kolom
+     centang dipersempit, isinya melewati batas sel dan tabel jadi bisa
+     digeser ke samping. */
+  #tabel-residu th:nth-child(1)  { width: 13%; }   /* kotak centang + judul */
+  #tabel-residu th:nth-child(2)  { width: 21%; }   /* nomor hak, harus utuh */
+  #tabel-residu th:nth-child(5)  { width: 13%; }   /* desa */
+  #tabel-residu th:nth-child(7)  { width: 17%; }   /* pemegang hak */
+  #tabel-residu th:nth-child(10) { width: 8%; }    /* tipologi */
+  #tabel-residu th:nth-child(11) { width: 18%; }   /* status */
+  #tabel-residu th:nth-child(12) { width: 10%; }   /* tombol rinci */
+  /* nomor hak dijaga tetap satu baris karena itu penanda barisnya; kalau
+     sampai kepanjangan dipotong elipsis, bukan dibungkus */
+  #tabel-residu tbody tr.baris-data td:nth-child(2) {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  /* desa & nama pemegang dibiarkan turun baris, tidak dipotong: barisnya
+     memang sudah bertingkat karena label status, jadi tidak ada yang hemat
+     dari memotongnya, sementara nama desa yang terpenggal sulit dibaca */
+  #tabel-residu tbody tr.baris-data td:nth-child(5),
+  #tabel-residu tbody tr.baris-data td:nth-child(7) { white-space: normal; }
+  /* tipologi & status berisi label kecil; label itu harus boleh turun baris,
+     sebab .nowrap bawaannya membuat isinya melewati batas sel sehingga tabel
+     jadi bisa digeser ke samping walau lebar kolomnya sudah pas */
+  #tabel-residu tbody tr.baris-data td:nth-child(10),
+  #tabel-residu tbody tr.baris-data td:nth-child(11) { white-space: normal; }
+  #tabel-residu tbody tr.baris-data td:nth-child(11) .tanda { margin-bottom: 2px; }
+
+  /* baris rincian tidak ikut dipatok lebarnya: isinya borang, bukan sel data */
+  #tabel-residu tbody tr.baris-rinci td { width: auto; white-space: normal; }
 }
 
 /* --- ponsel --- */
@@ -517,6 +561,82 @@ input.isian-catatan { width: 160px; padding: 4px 6px; font-size: 12px; }
 
   #borang-centang tbody tr.baris-diubah td:first-child { box-shadow: none; }
   #borang-centang tbody tr.baris-diubah { box-shadow: inset 3px 0 0 var(--oranye); }
+
+  /* RESIDU DI PONSEL
+     Tujuh kolom tidak muat berdampingan. Tiap baris disusun ulang: kotak
+     centang blanko tetap di kiri dan selalu terlihat, keterangan bertumpuk di
+     tengah, tombol Ubah di kanan. Hanya baris data yang disusun ulang —
+     baris rincian (berisi borang) dan baris "tidak ada data" dibiarkan
+     mengalir biasa. */
+  #tabel-residu,
+  #tabel-residu thead,
+  #tabel-residu tbody { display: block; }
+
+  #tabel-residu thead tr,
+  #tabel-residu tbody tr.baris-data {
+    display: grid;
+    grid-template-columns: 46px minmax(0, 1fr) auto;
+    grid-template-areas:
+      "blanko nomor  rinci"
+      "blanko desa   rinci"
+      "blanko nama   rinci"
+      "blanko tipo   rinci"
+      "blanko status rinci";
+    align-items: start;
+    border-bottom: 1px solid var(--garis);
+    padding: 8px 2px;
+  }
+
+  #tabel-residu thead tr {
+    grid-template-areas: "blanko judul rinci";
+    align-items: center;
+    background: var(--biru-muda);
+    padding: 6px 2px;
+  }
+  /* lebar persen dari susunan tablet harus dibatalkan: pada susunan kisi,
+     persen dihitung dari lebar kolom sehingga sel kepala menyusut */
+  #tabel-residu th:nth-child(n),
+  #tabel-residu td:nth-child(n) { width: auto; }
+  #tabel-residu thead th { position: static; background: none; border: 0; padding: 0; }
+  #tabel-residu thead th:nth-child(1) { grid-area: blanko; }
+  #tabel-residu thead th:nth-child(n+2) { display: none; }
+
+  #tabel-residu tbody tr.baris-data td {
+    border: 0;
+    padding: 1px 8px;
+    background: none;
+    white-space: normal;
+    overflow: visible;
+  }
+  #tabel-residu tbody tr.baris-data td.kol-centang {
+    background: #eaf3fa;
+    border-radius: 4px;
+    padding: 6px 0;
+    align-self: stretch;
+  }
+  #tabel-residu tbody tr.baris-data.baris-diubah td.kol-centang { background: #fbeec2; }
+
+  #tabel-residu tbody tr.baris-data td:nth-child(1)  { grid-area: blanko; }
+  #tabel-residu tbody tr.baris-data td:nth-child(2)  { grid-area: nomor; font-size: 13px; }
+  #tabel-residu tbody tr.baris-data td:nth-child(5)  { grid-area: desa; }
+  #tabel-residu tbody tr.baris-data td:nth-child(7)  { grid-area: nama; font-size: 11px; }
+  #tabel-residu tbody tr.baris-data td:nth-child(10) { grid-area: tipo; }
+  #tabel-residu tbody tr.baris-data td:nth-child(11) { grid-area: status; }
+  #tabel-residu tbody tr.baris-data td:nth-child(12) { grid-area: rinci; align-self: center; }
+
+  #tabel-residu tbody tr.baris-data td:nth-child(5)::before { content: "Desa: "; }
+  #tabel-residu tbody tr.baris-data td:nth-child(7)::before { content: "Pemegang: "; }
+  #tabel-residu tbody tr.baris-data td::before { color: var(--redup); font-weight: 600; }
+
+  #tabel-residu tbody tr.baris-data.baris-diubah td:first-child { box-shadow: none; }
+  #tabel-residu tbody tr.baris-data.baris-diubah { box-shadow: inset 3px 0 0 var(--oranye); }
+
+  /* baris rincian & baris kosong: biarkan mengalir, jangan ikut jadi kisi */
+  #tabel-residu tbody tr:not(.baris-data) { display: block; }
+  #tabel-residu tbody tr:not(.baris-data) td { display: block; width: auto; }
+  /* baris rincian disembunyikan lewat atribut hidden; display:block di atas
+     mengalahkannya, jadi ditegaskan lagi di sini */
+  #tabel-residu tbody tr.baris-rinci[hidden] { display: none; }
 
   .tab a { padding: 8px 12px; font-size: 12px; }
   .halaman { padding: 10px; gap: 6px; }

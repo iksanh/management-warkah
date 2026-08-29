@@ -256,7 +256,7 @@
 
 <div class="kartu rapat">
   <div class="gulir">
-    <table>
+    <table id="tabel-residu">
       <thead>
         <tr>
           <th class="tengah kol-centang" title="Centang semua blanko di halaman ini">
@@ -277,7 +277,7 @@
       </thead>
       <tbody>
       {% for r in baris %}
-        <tr data-id="{{ r.id }}">
+        <tr class="baris-data" data-id="{{ r.id }}">
           <td class="tengah kol-centang">
             <input type="checkbox" class="c-blanko" data-id="{{ r.id }}"
                    title="Blanko sertipikat ada" {{ 'checked' if r.blanko_ada == 'Ada' }}>
@@ -324,7 +324,7 @@
                     data-target="rinci-{{ r.id }}">Ubah</button>
           </td>
         </tr>
-        <tr id="rinci-{{ r.id }}" hidden>
+        <tr class="baris-rinci" id="rinci-{{ r.id }}" hidden>
           <td colspan="12">
             <form method="post" action="/residu/{{ r.id }}/simpan">
               <input type="hidden" name="kembali_ke" value="{{ kembali_ke }}">
