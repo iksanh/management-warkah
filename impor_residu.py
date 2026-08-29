@@ -67,7 +67,42 @@ KOLOM_ISI = ["bidang_id", "wilayah_id", "tahun", "nomor_berkas", "nomor_hak",
              "sudah_diserahkan", "tipologi", "keterangan"]
 
 HITUNGAN = ("baris", "baru", "diperbarui", "sama", "cocok", "belum_cocok",
-            "lewat", "ganda")
+            "lewat", "ganda", "ganda_beda")
+
+# Satu nomor hak kadang ditulis lebih dari sekali di lembar yang sama. Sebagian
+# memang baris kembar, sebagian lagi sertipikat yang sama dengan kode tipologi
+# atau keterangan berbeda - satu sertipikat wajar punya lebih dari satu
+# permasalahan. Kolom seperti itu digabung, bukan ditimpa.
+KOLOM_GABUNG = ["tipologi", "keterangan"]
+
+# Kolom di bawah tidak boleh berbeda: kalau berbeda berarti satu nomor hak
+# dipakai dua data yang tidak mungkin sama-sama benar, dan itu harus dilaporkan.
+KOLOM_BANDING = ["nomor_berkas", "nama_pemegang", "luas", "no_seri_blanko",
+                 "desa_teks", "sudah_diserahkan"]
+
+
+def gabung_ganda(lama, baru, h, nomor_hak):
+    """Satukan dua baris bernomor hak sama; hasilnya baris yang dipakai."""
+    for k in KOLOM_GABUNG:
+        bagian = []
+        for nilai in (lama[k], baru[k]):
+            for x in (nilai or "").split(","):
+                x = x.strip()
+                if x and x not in bagian:
+                    bagian.append(x)
+        if k == "tipologi":
+            bagian.sort(key=urut_tipologi)
+        baru[k] = (", " if k == "keterangan" else ",").join(bagian) or None
+
+    beda = [k for k in KOLOM_BANDING if lama[k] != baru[k]]
+    if beda:
+        h["ganda_beda"] += 1
+        h["catatan"].append(
+            "nomor hak %s dipakai dua data yang berbeda pada kolom %s "
+            "(%s vs %s) - yang tersimpan baris terakhir"
+            % (nomor_hak, ", ".join(beda),
+               lama["nama_pemegang"] or "?", baru["nama_pemegang"] or "?"))
+    return baru
 
 JENIS_DIGIT = {"1": "BT1", "2": "BT2", "3": "BT3", "4": "BT4",
                "5": "BT5", "8": "BT8"}
@@ -126,6 +161,19 @@ def kunci_kolom(nama) -> str:
 def ya_tidak(v) -> int:
     s = bersih(v)
     return 1 if s and s.lower() in YA else 0
+
+
+def urut_tipologi(kode: str):
+    """Kunci pengurutan kode tipologi: T2.1 sebelum T7, bukan sesudahnya.
+
+    Diurut menurut angkanya, sebab pengurutan teks biasa menaruh "T10" di
+    antara "T1" dan "T2", dan pengurutan menurut panjang teks menaruh "T7"
+    sebelum "T2.1".
+    """
+    m = re.match(r"T(\d+)(?:\.(\d+))?$", kode.strip().upper())
+    if not m:
+        return (99, 99, kode)
+    return (int(m.group(1)), int(m.group(2) or 0), kode)
 
 
 def titik(digit14: str) -> str:
@@ -266,19 +314,23 @@ def petakan_tipologi(df, kepala):
 
 
 def tahun_lembar(nama_lembar, peta, baris):
-    """Tahun residu: dari nama lembar, kalau tidak ada dari kolom Tahun."""
-    m = POLA_LEMBAR.match(nama_lembar or "")
+    """Tahun residu satu lembar: (tahun, berasal_dari_nama_lembar).
+
+    Bila nama lembarnya menyebut tahun, tahun itu yang dipakai untuk seluruh
+    barisnya - lembar Tipologi memang disusun per tahun program PTSL, dan
+    kolom "Tahun Berkas" di dalamnya sesekali memuat tahun berkas yang lain.
+    Kalau tahunnya tidak dipatok nama lembar (mis. unggahan CSV), barulah
+    kolom Tahun tiap baris yang dipakai.
+    """
+    m = POLA_LEMBAR.match(nama_lembar or "") or POLA_TAHUN.search(nama_lembar or "")
     if m:
-        return m.group(1)
-    m = POLA_TAHUN.search(nama_lembar or "")
-    if m:
-        return m.group(1)
+        return m.group(1), True
     if "tahun" in peta:
         for r in baris:
             t = bersih(r[peta["tahun"]])
             if t and POLA_TAHUN.search(t):
-                return POLA_TAHUN.search(t).group(1)
-    return None
+                return POLA_TAHUN.search(t).group(1), False
+    return None, False
 
 
 # ------------------------------------------------------------------ hitungan
@@ -310,8 +362,9 @@ def proses_lembar(kon, wilayah, nomor_bidang, df, nama_lembar, opsi, berkas):
     kol_tipologi = petakan_tipologi(df, kepala)
 
     baris = [r for _, r in df.iloc[kepala + 1:].iterrows()]
-    tahun_baku = tahun_lembar(nama_lembar, peta, baris)
+    tahun_baku, tahun_dari_lembar = tahun_lembar(nama_lembar, peta, baris)
     h = rangkuman(berkas, nama_lembar, tahun_baku)
+    beda_tahun = 0
 
     def sel(r, nama):
         j = peta.get(nama)
@@ -337,14 +390,17 @@ def proses_lembar(kon, wilayah, nomor_bidang, df, nama_lembar, opsi, berkas):
             wid = wilayah.cari_nama(desa)[0]
 
         tipologi = sorted({kode for j, kode in kol_tipologi.items() if bersih(r[j])},
-                          key=lambda k: (len(k), k))
+                          key=urut_tipologi)
 
         tahun = sel(r, "tahun")
+        tahun_baris = (POLA_TAHUN.search(tahun).group(1)
+                       if tahun and POLA_TAHUN.search(tahun) else None)
+        if tahun_dari_lembar and tahun_baris and tahun_baris != tahun_baku:
+            beda_tahun += 1
         n = {
             "bidang_id": nomor_bidang.get(nomor_hak),
             "wilayah_id": wid,
-            "tahun": (POLA_TAHUN.search(tahun).group(1)
-                      if tahun and POLA_TAHUN.search(tahun) else tahun_baku),
+            "tahun": tahun_baku if tahun_dari_lembar else (tahun_baris or tahun_baku),
             "nomor_berkas": sel(r, "nomor_berkas"),
             "nomor_hak": nomor_hak,
             "nomor_hak_asli": asli,
@@ -364,6 +420,7 @@ def proses_lembar(kon, wilayah, nomor_bidang, df, nama_lembar, opsi, berkas):
         kunci = buat_kunci(nomor_hak, n["tahun"], n["nomor_berkas"], asli)
         if kunci in isi:
             h["ganda"] += 1
+            n = gabung_ganda(isi[kunci], n, h, nomor_hak or asli)
         isi[kunci] = n
 
     # bidang_id wajib unik: satu bidang hanya boleh punya satu baris residu
@@ -404,7 +461,12 @@ def proses_lembar(kon, wilayah, nomor_bidang, df, nama_lembar, opsi, berkas):
                 [n[k] for k in KOLOM_ISI] + [berkas, opsi["waktu"], kunci])
             h["diperbarui"] += 1
 
-    h["catatan"] = list(dict.fromkeys(h["catatan"]))[:4]
+    if beda_tahun:
+        h["catatan"].append(
+            "%d baris kolom Tahun Berkas-nya berbeda dari nama lembar; "
+            "yang dipakai tahun lembar (%s)" % (beda_tahun, tahun_baku))
+
+    h["catatan"] = list(dict.fromkeys(h["catatan"]))[:5]
     return h
 
 
