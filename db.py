@@ -16,6 +16,16 @@ JENIS_HAK = [
 
 PETUGAS_AWAL = ["Iman", "Rian", "Mimin", "Bento"]
 
+# tipologi permasalahan residu PTSL; kolom "nama" diisi/diubah lewat halaman
+# Residu karena keterangan resminya tidak ikut tertulis di berkas Excel
+TIPOLOGI = [
+    ("T1.1", "T1", 1), ("T1.2", "T1", 2), ("T1.3", "T1", 3), ("T1.4", "T1", 4),
+    ("T2.1", "T2", 5), ("T2.2", "T2", 6), ("T2.3", "T2", 7), ("T2.4", "T2", 8),
+    ("T3.1", "T3", 9), ("T3.2", "T3", 10), ("T3.3", "T3", 11), ("T3.4", "T3", 12),
+    ("T4", "T4", 13), ("T5", "T5", 14), ("T6", "T6", 15), ("T7", "T7", 16),
+    ("T8", "T8", 17),
+]
+
 SKEMA = """
 PRAGMA journal_mode = WAL;
 PRAGMA foreign_keys = ON;
@@ -150,6 +160,60 @@ CREATE TABLE IF NOT EXISTS rekap_kkp (
     diubah_pada TEXT
 );
 
+-- acuan kode tipologi permasalahan residu PTSL
+CREATE TABLE IF NOT EXISTS tipologi (
+    kode      TEXT PRIMARY KEY,
+    kelompok  TEXT NOT NULL,
+    nama      TEXT,
+    urut      INTEGER
+);
+
+-- satu baris = satu sertipikat PTSL yang belum diserahkan ke pemohon.
+-- Bila nomor haknya ada di tabel bidang, baris ini menempel satu-lawan-satu
+-- lewat bidang_id; bila belum ketemu, bidang_id dibiarkan kosong dan barisnya
+-- tetap tersimpan supaya bisa dicocokkan lagi kemudian.
+CREATE TABLE IF NOT EXISTS residu (
+    id               INTEGER PRIMARY KEY,
+    kunci            TEXT NOT NULL UNIQUE,
+    bidang_id        INTEGER UNIQUE REFERENCES bidang (id),
+    wilayah_id       INTEGER REFERENCES wilayah (id),
+    tahun            TEXT,
+    nomor_berkas     TEXT,
+    nomor_hak        TEXT,
+    nomor_hak_asli   TEXT,
+    jenis_hak        TEXT,
+    jenis_hak_teks   TEXT,
+    desa_teks        TEXT,
+    kecamatan_teks   TEXT,
+    nama_pemegang    TEXT,
+    no_seri_blanko   TEXT,
+    luas             INTEGER,
+    sudah_diserahkan INTEGER NOT NULL DEFAULT 0,
+    tipologi         TEXT,
+    keterangan       TEXT,
+    blanko_ada       TEXT,
+    blanko_petugas   TEXT,
+    blanko_tanggal   TEXT,
+    blanko_tempat    TEXT,
+    blanko_diubah    TEXT,
+    status           TEXT,
+    tindak_lanjut    TEXT,
+    petugas          TEXT,
+    tanggal_serah    TEXT,
+    penerima         TEXT,
+    catatan          TEXT,
+    sumber           TEXT,
+    diimpor_pada     TEXT,
+    diubah_oleh      TEXT,
+    diubah_pada      TEXT
+);
+CREATE INDEX IF NOT EXISTS ix_residu_nomor   ON residu (nomor_hak);
+CREATE INDEX IF NOT EXISTS ix_residu_tahun   ON residu (tahun);
+CREATE INDEX IF NOT EXISTS ix_residu_wilayah ON residu (wilayah_id);
+CREATE INDEX IF NOT EXISTS ix_residu_status  ON residu (status);
+CREATE INDEX IF NOT EXISTS ix_residu_serah   ON residu (sudah_diserahkan);
+-- ix_residu_blanko dibuat di migrasi(), sesudah kolomnya dipastikan ada
+
 -- catatan aktivitas ringkas
 CREATE TABLE IF NOT EXISTS log_aktivitas (
     id        INTEGER PRIMARY KEY,
@@ -175,6 +239,12 @@ PILIHAN = {
                       "Lapor Koordinator"],
     "status_penugasan": ["Belum Mulai", "Proses", "Selesai Periksa", "Verifikasi",
                          "Revisi", "Tertunda"],
+    "blanko": ["Ada", "Tidak Ada"],
+    "status_residu": ["Belum Ditindaklanjuti", "Dalam Proses", "Siap Diserahkan",
+                      "Sudah Diserahkan", "Batal/Dibatalkan", "Tidak Dapat Diselesaikan"],
+    "tindak_lanjut_residu": ["Belum Ditentukan", "Panggil Pemohon", "Lengkapi Berkas",
+                             "Perbaikan Data", "Ukur/Peta Ulang", "Koordinasi Desa",
+                             "Serahkan Lewat Desa", "Ke Seksi Sengketa"],
 }
 
 
@@ -188,6 +258,13 @@ def sambung():
 
 # kolom yang ditambahkan setelah basis data pertama kali dibuat
 TAMBAHAN_KOLOM = {
+    "residu": [
+        ("blanko_ada", "TEXT"),
+        ("blanko_petugas", "TEXT"),
+        ("blanko_tanggal", "TEXT"),
+        ("blanko_tempat", "TEXT"),
+        ("blanko_diubah", "TEXT"),
+    ],
     "petugas": [
         ("username", "TEXT"),
         ("sandi", "TEXT"),
@@ -207,6 +284,7 @@ def migrasi(kon):
                 kon.execute("ALTER TABLE %s ADD COLUMN %s %s" % (tabel, nama, tipe))
     kon.execute("CREATE UNIQUE INDEX IF NOT EXISTS ix_petugas_username "
                 "ON petugas (username) WHERE username IS NOT NULL")
+    kon.execute("CREATE INDEX IF NOT EXISTS ix_residu_blanko ON residu (blanko_ada)")
     kon.commit()
 
 
@@ -218,6 +296,8 @@ def siapkan():
     kon.executemany("INSERT OR IGNORE INTO jenis_hak (kode, nama) VALUES (?, ?)", JENIS_HAK)
     kon.executemany("INSERT OR IGNORE INTO petugas (nama) VALUES (?)",
                     [(n,) for n in PETUGAS_AWAL])
+    kon.executemany("INSERT OR IGNORE INTO tipologi (kode, kelompok, urut) "
+                    "VALUES (?,?,?)", TIPOLOGI)
     kon.commit()
     return kon
 
@@ -226,7 +306,8 @@ if __name__ == "__main__":
     kon = siapkan()
     print("basis data siap:", DB_PATH)
     for t in ("wilayah", "bidang", "penyimpanan", "pemeriksaan", "peminjaman",
-              "penugasan", "petugas", "jenis_hak", "rekap_kkp"):
+              "penugasan", "petugas", "jenis_hak", "rekap_kkp", "residu",
+              "tipologi"):
         n = kon.execute("SELECT COUNT(*) FROM %s" % t).fetchone()[0]
         print("  %-14s %8d baris" % (t, n))
     kon.close()

@@ -123,6 +123,40 @@
 
 </div>
 
+{% if residu %}
+  <div class="kartu">
+    <h2>Residu PTSL</h2>
+    <p class="jelas" style="margin-top:0">
+      Sertipikat bidang ini tercatat sebagai residu PTSL tahun {{ residu.tahun or '—' }}.
+      {% if residu.sudah_diserahkan %}
+        <span class="tanda hijau">Sudah diserahkan</span>
+      {% else %}
+        <span class="tanda oranye">Belum diserahkan</span>
+      {% endif %}
+      {% if residu.status %}<span class="tanda biru">{{ residu.status }}</span>{% endif %}
+    </p>
+    <dl class="rincian">
+      <dt>Nomor berkas</dt><dd class="mono">{{ residu.nomor_berkas or '—' }}</dd>
+      <dt>Pemegang hak</dt><dd>{{ residu.nama_pemegang or '—' }}</dd>
+      <dt>Seri blanko</dt><dd class="mono">{{ residu.no_seri_blanko or '—' }}</dd>
+      <dt>Tipologi</dt>
+      <dd>
+        {% for k in (residu.tipologi or '').split(',') if k %}
+          <span class="tanda abu">{{ k }}</span>
+        {% else %}<span class="redup">—</span>{% endfor %}
+      </dd>
+      <dt>Tindak lanjut</dt><dd>{{ residu.tindak_lanjut or '—' }}</dd>
+      <dt>Petugas</dt><dd>{{ residu.petugas or '—' }}</dd>
+      <dt>Tanggal serah</dt><dd>{{ residu.tanggal_serah or '—' }}</dd>
+      <dt>Penerima</dt><dd>{{ residu.penerima or '—' }}</dd>
+      <dt>Catatan</dt><dd>{{ residu.catatan or '—' }}</dd>
+    </dl>
+    <p class="kecil" style="margin:14px 0 0">
+      <a class="tombol kecil kedua" href="/residu?q={{ residu.nomor_hak | urlencode }}">Buka di daftar residu</a>
+    </p>
+  </div>
+{% endif %}
+
 <form method="post" action="/bidang/{{ b.id }}/simpan">
   <div class="kartu">
     <h2>Lokasi simpan &amp; hasil pemeriksaan</h2>

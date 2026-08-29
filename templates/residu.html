@@ -1,0 +1,609 @@
+{% extends "dasar.html" %}
+{% block judul %}Residu PTSL — Aplikasi Warkah{% endblock %}
+{% block isi %}
+
+{% set th = qp.get('tahun') %}
+<h1>Residu PTSL{{ ' ' ~ th if th }}</h1>
+<p class="jelas">
+  Sertipikat hasil PTSL yang sudah terbit tetapi belum diserahkan ke pemohon,
+  dipisah per tahun anggaran mengikuti lembar berkas asalnya.
+  Nomor haknya dicocokkan satu-lawan-satu dengan data bidang di katalog.
+</p>
+
+{# tautan tab menjaga saringan lain tetap terpasang, hanya tahun yang berganti #}
+{% set sisa = [] %}
+{% for k, v in dasar.items() if k not in ('tahun', 'hal') %}
+  {% set _ = sisa.append(k ~ '=' ~ (v | urlencode)) %}
+{% endfor %}
+{% set ekor = ('&' ~ (sisa | join('&'))) if sisa else '' %}
+<div class="tab">
+  <a href="/residu{{ '?' ~ (sisa | join('&')) if sisa }}" class="{{ 'aktif' if not th }}">
+    Semua tahun ({{ per_tahun | sum(attribute='jumlah') | angka }})
+  </a>
+  {% for t in per_tahun %}
+    <a href="/residu?tahun={{ t.tahun | urlencode }}{{ ekor }}"
+       class="{{ 'aktif' if th == t.tahun }}">{{ t.tahun }} ({{ t.jumlah | angka }})</a>
+  {% endfor %}
+</div>
+
+{% if tersimpan %}
+  <div class="pesan sukses">Perubahan tersimpan.</div>
+{% endif %}
+{% if qp.get('tercentang') %}
+  <div class="pesan sukses">Centang blanko tersimpan untuk {{ qp.get('tercentang') }} baris.</div>
+{% endif %}
+{% if qp.get('tercocok') %}
+  <div class="pesan sukses">{{ qp.get('tercocok') }} baris residu baru tercocokkan dengan data bidang.</div>
+{% endif %}
+
+<div class="kisi k6">
+  <div class="angka-kotak">
+    <div class="nilai">{{ ringkas.jumlah | angka }}</div>
+    <div class="label">Baris residu</div>
+  </div>
+  <div class="angka-kotak oranye">
+    <div class="nilai">{{ (ringkas.jumlah - (ringkas.diserahkan or 0)) | angka }}</div>
+    <div class="label">Belum diserahkan</div>
+  </div>
+  <div class="angka-kotak hijau">
+    <div class="nilai">{{ (ringkas.diserahkan or 0) | angka }}</div>
+    <div class="label">Sudah diserahkan</div>
+  </div>
+  <div class="angka-kotak ungu">
+    <div class="nilai">{{ (ringkas.cocok or 0) | angka }}</div>
+    <div class="label">Cocok dengan bidang</div>
+  </div>
+  <div class="angka-kotak merah">
+    <div class="nilai">{{ (ringkas.jumlah - (ringkas.cocok or 0)) | angka }}</div>
+    <div class="label">Belum tercocokkan</div>
+  </div>
+  <div class="angka-kotak">
+    <div class="nilai">{{ (ringkas.ditindaklanjuti or 0) | angka }}</div>
+    <div class="label">Sudah ditindaklanjuti</div>
+  </div>
+  <div class="angka-kotak hijau">
+    <div class="nilai">{{ (ringkas.blanko_ada or 0) | angka }}</div>
+    <div class="label">Blanko ada</div>
+  </div>
+  <div class="angka-kotak">
+    <div class="nilai">{{ (ringkas.blanko_belum or 0) | angka }}</div>
+    <div class="label">Blanko belum dicek</div>
+  </div>
+</div>
+
+<div class="kartu">
+  <form class="saring" method="get" action="/residu">
+    <div class="bidang-isian isian-lebar">
+      <label for="q">Kata kunci</label>
+      <input type="text" id="q" name="q" value="{{ qp.get('q', '') }}"
+             placeholder="tahun / nomor hak / nama pemegang / nomor berkas / seri blanko"
+             class="lebar-penuh">
+    </div>
+    <div class="bidang-isian">
+      <label for="tahun">Tahun</label>
+      <select id="tahun" name="tahun">
+        <option value="">Semua tahun</option>
+        {% for t in semua_tahun %}
+          <option value="{{ t.tahun }}" {{ 'selected' if th == t.tahun }}>{{ t.tahun }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="bidang-isian">
+      <label for="kecamatan">Kecamatan</label>
+      <select id="kecamatan" name="kecamatan">
+        <option value="">Semua</option>
+        {% for k in kecamatan %}
+          <option value="{{ k.nama_kecamatan }}" {{ 'selected' if kec_terpilih == k.nama_kecamatan }}>{{ k.nama_kecamatan }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="bidang-isian">
+      <label for="desa">Desa</label>
+      <select id="desa" name="desa">
+        <option value="">Semua</option>
+        {% for d in desa_tampil %}
+          <option value="{{ d.id }}" {{ 'selected' if qp.get('desa') == d.id | string }}>
+            {{ d.nama_desa }}{{ '' if kec_terpilih else ' (' ~ d.nama_kecamatan ~ ')' }}
+          </option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="bidang-isian">
+      <label for="tipologi">Tipologi</label>
+      <select id="tipologi" name="tipologi">
+        <option value="">Semua</option>
+        {% for t in daftar_tipologi %}
+          <option value="{{ t.kode }}" {{ 'selected' if qp.get('tipologi') == t.kode }}>
+            {{ t.kode }}{{ ' — ' ~ t.nama if t.nama }} ({{ hitung_tipologi.get(t.kode, 0) }})
+          </option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="bidang-isian">
+      <label for="serah">Penyerahan</label>
+      <select id="serah" name="serah">
+        <option value="">Semua</option>
+        <option value="belum" {{ 'selected' if qp.get('serah') == 'belum' }}>Belum diserahkan</option>
+        <option value="sudah" {{ 'selected' if qp.get('serah') == 'sudah' }}>Sudah diserahkan</option>
+      </select>
+    </div>
+    <div class="bidang-isian">
+      <label for="status">Status tindak lanjut</label>
+      <select id="status" name="status">
+        <option value="">Semua</option>
+        {% for s in pilihan.status_residu %}
+          <option value="{{ s }}" {{ 'selected' if qp.get('status') == s }}>{{ s }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="bidang-isian">
+      <label for="blanko">Blanko</label>
+      <select id="blanko" name="blanko">
+        <option value="">Semua</option>
+        <option value="belum" {{ 'selected' if qp.get('blanko') == 'belum' }}>Belum dicek</option>
+        {% for b in pilihan.blanko %}
+          <option value="{{ b }}" {{ 'selected' if qp.get('blanko') == b }}>{{ b }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="bidang-isian">
+      <label for="cocok">Pencocokan</label>
+      <select id="cocok" name="cocok">
+        <option value="">Semua</option>
+        <option value="cocok" {{ 'selected' if qp.get('cocok') == 'cocok' }}>Cocok dengan bidang</option>
+        <option value="belum" {{ 'selected' if qp.get('cocok') == 'belum' }}>Belum tercocokkan</option>
+      </select>
+    </div>
+    <div class="bidang-isian">
+      <label>&nbsp;</label>
+      <div style="display:flex; gap:6px">
+        <button type="submit">Cari</button>
+        <a href="/residu" class="tombol kedua">Reset</a>
+      </div>
+    </div>
+  </form>
+
+  <p class="kecil" style="margin:12px 0 0; display:flex; gap:8px; flex-wrap:wrap; align-items:center">
+    <a class="tombol kecil kedua" href="/residu.csv{{ ('?' ~ request.url.query) if request.url.query }}">Unduh CSV</a>
+    {% if admin %}
+      <a class="tombol kecil kedua" href="/residu/impor">Impor berkas residu</a>
+      <form method="post" action="/residu/cocokkan" style="display:inline">
+        <input type="hidden" name="kembali_ke" value="{{ kembali_ke }}">
+        <button type="submit" class="kecil kedua"
+                title="Isi ulang tautan ke data bidang untuk baris yang belum tercocokkan">
+          Cocokkan ulang
+        </button>
+      </form>
+    {% endif %}
+  </p>
+</div>
+
+{# daftar desa lengkap, dipakai untuk menyusun ulang pilihan saat kecamatan diganti #}
+<script id="data-desa" type="application/json">{{ desa | tojson }}</script>
+<script>
+(function () {
+  var semuaDesa = JSON.parse(document.getElementById('data-desa').textContent);
+  var pilihKec = document.getElementById('kecamatan');
+  var pilihDesa = document.getElementById('desa');
+
+  pilihKec.addEventListener('change', function () {
+    var kec = pilihKec.value;
+    var sebelumnya = pilihDesa.value;
+    var cocok = semuaDesa.filter(function (d) { return !kec || d.nama_kecamatan === kec; });
+
+    pilihDesa.innerHTML = '';
+    var semua = document.createElement('option');
+    semua.value = '';
+    semua.textContent = 'Semua';
+    pilihDesa.appendChild(semua);
+
+    cocok.forEach(function (d) {
+      var o = document.createElement('option');
+      o.value = String(d.id);
+      o.textContent = kec ? d.nama_desa : d.nama_desa + ' (' + d.nama_kecamatan + ')';
+      pilihDesa.appendChild(o);
+    });
+
+    var masihAda = cocok.some(function (d) { return String(d.id) === sebelumnya; });
+    pilihDesa.value = masihAda ? sebelumnya : '';
+  });
+})();
+</script>
+
+{# borang centang sengaja ditaruh di luar tabel: baris rincian di dalam tabel
+   sudah punya borangnya sendiri, dan borang bersarang tidak sah di HTML.
+   Kotak centangnya tidak ikut terkirim langsung - JS di bawah yang menyusun
+   masukan tersembunyi untuk baris yang benar-benar diubah. #}
+<form method="post" action="/residu/centang" id="borang-centang">
+<input type="hidden" name="kembali_ke" value="{{ kembali_ke }}">
+
+<div class="bilah-centang">
+  <div class="bidang-isian">
+    <label for="c-petugas">Petugas</label>
+    {% if admin %}
+      <select id="c-petugas" name="petugas">
+        {% for pt in daftar_petugas %}
+          <option value="{{ pt.nama }}" {{ 'selected' if pt.nama == petugas_aktif }}>{{ pt.nama }}</option>
+        {% endfor %}
+      </select>
+    {% else %}
+      <input type="text" id="c-petugas" value="{{ petugas_aktif }}" readonly class="terkunci">
+    {% endif %}
+  </div>
+  <div class="bidang-isian">
+    <label for="c-tanggal">Tanggal</label>
+    <input type="date" id="c-tanggal" name="tanggal" value="{{ hari_ini }}">
+  </div>
+  <div class="bidang-isian">
+    <label for="c-tempat">Tempat <span class="redup">(opsional)</span></label>
+    <input type="text" id="c-tempat" name="tempat" placeholder="mis. Ruang Arsip">
+  </div>
+  <div class="bidang-isian">
+    <label>&nbsp;</label>
+    <button type="submit" class="hijau" id="tombol-simpan" disabled>
+      Simpan centang (<span id="jml-ubah">0</span>)
+    </button>
+  </div>
+  <div class="petunjuk-centang">
+    Centang <strong>Blanko</strong> bila blanko sertipikatnya memang ada, biarkan
+    kosong bila tidak ada, lalu Simpan. Hanya baris yang Anda ubah yang disimpan.
+    Ini mencatat kondisi yang ada apa adanya — nomor seri blanko di berkas tidak
+    dipakai sebagai pembanding.
+  </div>
+</div>
+<div id="wadah-ubah" hidden></div>
+</form>
+
+<div class="kartu rapat">
+  <div class="gulir">
+    <table>
+      <thead>
+        <tr>
+          <th class="tengah kol-centang" title="Centang semua blanko di halaman ini">
+            <label class="kepala-centang"><input type="checkbox" id="semua-blanko"> Blanko</label>
+          </th>
+          <th>Nomor Hak</th>
+          <th class="kol-opsional">Tahun</th>
+          <th class="kol-opsional">Berkas</th>
+          <th>Desa</th>
+          <th class="kol-opsional">Kecamatan</th>
+          <th>Pemegang Hak</th>
+          <th class="angka kol-opsional">Luas (m²)</th>
+          <th class="kol-opsional">Seri Blanko</th>
+          <th>Tipologi</th>
+          <th>Status</th>
+          <th class="tengah">Rinci</th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for r in baris %}
+        <tr data-id="{{ r.id }}">
+          <td class="tengah kol-centang">
+            <input type="checkbox" class="c-blanko" data-id="{{ r.id }}"
+                   title="Blanko sertipikat ada" {{ 'checked' if r.blanko_ada == 'Ada' }}>
+          </td>
+          <td class="nowrap mono">
+            {% if r.bidang_id %}
+              <a href="/bidang/{{ r.bidang_id }}">{{ r.nomor_hak }}</a>
+            {% else %}
+              {{ r.nomor_hak or r.nomor_hak_asli }}
+            {% endif %}
+          </td>
+          <td class="kol-opsional">{{ r.tahun or '—' }}</td>
+          <td class="mono kecil kol-opsional">{{ r.nomor_berkas or '—' }}</td>
+          <td>{{ r.nama_desa or r.desa_teks or '—' }}</td>
+          <td class="kecil redup kol-opsional">{{ r.nama_kecamatan or r.kecamatan_teks or '—' }}</td>
+          <td class="kecil">{{ r.nama_pemegang or '—' }}</td>
+          <td class="angka kol-opsional">{{ r.luas | angka if r.luas else '—' }}</td>
+          <td class="mono kecil kol-opsional">{{ r.no_seri_blanko or '—' }}</td>
+          <td class="kecil nowrap">
+            {% for k in (r.tipologi or '').split(',') if k %}
+              <span class="tanda abu" title="{{ k }}">{{ k }}</span>
+            {% else %}
+              <span class="redup">—</span>
+            {% endfor %}
+          </td>
+          <td class="nowrap">
+            {% if r.sudah_diserahkan %}
+              <span class="tanda hijau">Diserahkan</span>
+            {% else %}
+              <span class="tanda oranye">Belum</span>
+            {% endif %}
+            {% if not r.bidang_id %}
+              <span class="tanda merah" title="Nomor hak ini belum ada di tabel bidang">Belum cocok</span>
+            {% endif %}
+            {% if r.status %}<span class="tanda biru">{{ r.status }}</span>{% endif %}
+            {% if r.blanko_ada == 'Tidak Ada' %}
+              <span class="tanda merah">Blanko tidak ada</span>
+            {% elif not r.blanko_ada %}
+              <span class="tanda abu">Blanko belum dicek</span>
+            {% endif %}
+          </td>
+          <td class="tengah">
+            <button type="button" class="tombol kecil kedua buka-rinci"
+                    data-target="rinci-{{ r.id }}">Ubah</button>
+          </td>
+        </tr>
+        <tr id="rinci-{{ r.id }}" hidden>
+          <td colspan="12">
+            <form method="post" action="/residu/{{ r.id }}/simpan">
+              <input type="hidden" name="kembali_ke" value="{{ kembali_ke }}">
+              <div class="kisi k2">
+                <div>
+                  <dl class="rincian">
+                    <dt>Nomor hak asli</dt><dd class="mono">{{ r.nomor_hak_asli or '—' }}</dd>
+                    <dt>Surat ukur</dt><dd>{{ r.surat_ukur or '—' }}</dd>
+                    <dt>NIB</dt><dd class="mono">{{ r.nib or '—' }}</dd>
+                    <dt>Pemilik di KKP</dt><dd>{{ r.pemilik_akhir or '—' }}</dd>
+                    <dt>Lokasi warkah</dt>
+                    <dd>
+                      {% set lok = [r.ruang, r.lemari, r.rak, r.box] | select | list %}
+                      {% if lok %}<span class="tanda ungu">{{ lok | join(' / ') }}</span>
+                      {% else %}<span class="redup">belum diisi</span>{% endif %}
+                    </dd>
+                    <dt>Keterangan berkas</dt><dd>{{ r.keterangan or '—' }}</dd>
+                    <dt>Blanko</dt>
+                    <dd>
+                      {% if r.blanko_ada == 'Ada' %}<span class="tanda hijau">Ada</span>
+                      {% elif r.blanko_ada %}<span class="tanda merah">{{ r.blanko_ada }}</span>
+                      {% else %}<span class="tanda abu">Belum dicek</span>{% endif %}
+                      {% if r.blanko_tanggal %}
+                        <span class="kecil redup">
+                          {{ r.blanko_tanggal }}{{ ' · ' ~ r.blanko_petugas if r.blanko_petugas }}{{ ' · ' ~ r.blanko_tempat if r.blanko_tempat }}
+                        </span>
+                      {% endif %}
+                    </dd>
+                    <dt>Terakhir diubah</dt>
+                    <dd class="kecil redup">
+                      {{ (r.diubah_pada ~ ' oleh ' ~ (r.diubah_oleh or '-')) if r.diubah_pada else 'belum pernah' }}
+                    </dd>
+                  </dl>
+                </div>
+                <div>
+                  <div class="baris-borang">
+                    <div class="bidang-isian">
+                      <label for="status-{{ r.id }}">Status</label>
+                      <select id="status-{{ r.id }}" name="status">
+                        <option value="">—</option>
+                        {% for s in pilihan.status_residu %}
+                          <option value="{{ s }}" {{ 'selected' if r.status == s }}>{{ s }}</option>
+                        {% endfor %}
+                      </select>
+                    </div>
+                    <div class="bidang-isian">
+                      <label for="tl-{{ r.id }}">Tindak lanjut</label>
+                      <select id="tl-{{ r.id }}" name="tindak_lanjut">
+                        <option value="">—</option>
+                        {% for s in pilihan.tindak_lanjut_residu %}
+                          <option value="{{ s }}" {{ 'selected' if r.tindak_lanjut == s }}>{{ s }}</option>
+                        {% endfor %}
+                      </select>
+                    </div>
+                    <div class="bidang-isian">
+                      <label for="pt-{{ r.id }}">Petugas</label>
+                      {% if admin %}
+                        <select id="pt-{{ r.id }}" name="petugas">
+                          <option value="">—</option>
+                          {% for p in daftar_petugas %}
+                            <option value="{{ p.nama }}" {{ 'selected' if r.petugas == p.nama }}>{{ p.nama }}</option>
+                          {% endfor %}
+                        </select>
+                      {% else %}
+                        <input type="text" id="pt-{{ r.id }}" value="{{ petugas_aktif }}"
+                               readonly class="terkunci">
+                      {% endif %}
+                    </div>
+                  </div>
+                  <div class="baris-borang">
+                    <div class="bidang-isian">
+                      <label for="tgl-{{ r.id }}">Tanggal serah</label>
+                      <input type="date" id="tgl-{{ r.id }}" name="tanggal_serah"
+                             value="{{ r.tanggal_serah or '' }}">
+                    </div>
+                    <div class="bidang-isian">
+                      <label for="pn-{{ r.id }}">Penerima</label>
+                      <input type="text" id="pn-{{ r.id }}" name="penerima"
+                             value="{{ r.penerima or '' }}" placeholder="nama penerima">
+                    </div>
+                  </div>
+                  <div class="bidang-isian isian-lebar">
+                    <label for="ct-{{ r.id }}">Catatan</label>
+                    <input type="text" id="ct-{{ r.id }}" name="catatan"
+                           value="{{ r.catatan or '' }}" class="lebar-penuh">
+                  </div>
+                  <p class="kecil" style="margin:10px 0">
+                    <label style="font-weight:500">
+                      <input type="checkbox" name="sudah_diserahkan" value="1"
+                             {{ 'checked' if r.sudah_diserahkan }}>
+                      Sertipikat sudah diserahkan ke pemohon
+                    </label>
+                  </p>
+                  <button type="submit" class="hijau">Simpan</button>
+                </div>
+              </div>
+            </form>
+          </td>
+        </tr>
+      {% else %}
+        <tr><td colspan="12" class="kosong">
+          Belum ada data residu yang cocok dengan saringan.
+          {% if admin %}<a href="/residu/impor">Impor berkas RESIDU PTSL</a> lebih dulu.{% endif %}
+        </td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <div class="halaman">
+    <div class="info">
+      {{ jumlah | angka }} data ditemukan — halaman {{ hal }} dari {{ halaman_akhir | angka }}
+    </div>
+    {% set tautan = [] %}
+    {% for k, v in dasar.items() %}{% set _ = tautan.append(k ~ '=' ~ (v | urlencode)) %}{% endfor %}
+    {% set awalan = '/residu?' ~ (tautan | join('&')) ~ ('&' if tautan else '') %}
+    {% if hal > 1 %}
+      <a class="tombol kecil kedua" href="{{ awalan }}hal=1">« Awal</a>
+      <a class="tombol kecil kedua" href="{{ awalan }}hal={{ hal - 1 }}">‹ Sebelumnya</a>
+    {% endif %}
+    {% if hal < halaman_akhir %}
+      <a class="tombol kecil kedua" href="{{ awalan }}hal={{ hal + 1 }}">Berikutnya ›</a>
+      <a class="tombol kecil kedua" href="{{ awalan }}hal={{ halaman_akhir }}">Akhir »</a>
+    {% endif %}
+  </div>
+</div>
+
+<script>
+(function () {
+  var borang = document.getElementById('borang-centang');
+  var wadah = document.getElementById('wadah-ubah');
+  var tombol = document.getElementById('tombol-simpan');
+  var jml = document.getElementById('jml-ubah');
+  var diubah = new Set();
+
+  function tandai(id) {
+    diubah.add(String(id));
+    var tr = document.querySelector('tr[data-id="' + id + '"]');
+    if (tr) tr.classList.add('baris-diubah');
+    jml.textContent = diubah.size;
+    tombol.disabled = diubah.size === 0;
+  }
+
+  document.addEventListener('change', function (e) {
+    if (e.target.classList.contains('c-blanko')) { tandai(e.target.dataset.id); }
+  });
+
+  // centang seluruh blanko pada halaman yang sedang tampil
+  document.getElementById('semua-blanko').addEventListener('change', function () {
+    var nyala = this.checked;
+    document.querySelectorAll('.c-blanko').forEach(function (c) {
+      if (c.checked !== nyala) { c.checked = nyala; }
+      tandai(c.dataset.id);
+    });
+  });
+
+  // hanya baris yang diubah yang ikut terkirim
+  borang.addEventListener('submit', function () {
+    wadah.innerHTML = '';
+    diubah.forEach(function (id) {
+      var c = document.querySelector('.c-blanko[data-id="' + id + '"]');
+      var tambah = function (nama, nilai) {
+        var i = document.createElement('input');
+        i.type = 'hidden'; i.name = nama; i.value = nilai;
+        wadah.appendChild(i);
+      };
+      tambah('ubah', id);
+      if (c && c.checked) tambah('blanko_' + id, '1');
+    });
+    diubah.clear();
+  });
+
+  // cegah kehilangan centang yang belum disimpan
+  window.addEventListener('beforeunload', function (e) {
+    if (diubah.size) { e.preventDefault(); e.returnValue = ''; }
+  });
+})();
+
+document.querySelectorAll('.buka-rinci').forEach(function (t) {
+  t.addEventListener('click', function () {
+    var baris = document.getElementById(t.dataset.target);
+    baris.hidden = !baris.hidden;
+    t.textContent = baris.hidden ? 'Ubah' : 'Tutup';
+  });
+});
+</script>
+
+<div class="kartu">
+  <h2>Rekap per tahun anggaran</h2>
+  <p class="kecil redup" style="margin-top:0">
+    Angka mengikuti saringan yang sedang aktif, kecuali tahun. Klik tahunnya
+    untuk membuka daftarnya.
+  </p>
+  <div class="gulir">
+    <table>
+      <thead>
+        <tr>
+          <th>Tahun</th>
+          <th class="angka">Jumlah</th>
+          <th class="angka">Sudah diserahkan</th>
+          <th class="angka">Belum diserahkan</th>
+          <th class="angka">Cocok dengan bidang</th>
+          <th class="angka">Belum tercocokkan</th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for t in per_tahun %}
+        <tr>
+          <td class="nowrap">
+            <a href="/residu?tahun={{ t.tahun | urlencode }}{{ ekor }}">{{ t.tahun }}</a>
+            {% if th == t.tahun %}<span class="tanda biru">sedang dilihat</span>{% endif %}
+          </td>
+          <td class="angka">{{ t.jumlah | angka }}</td>
+          <td class="angka">{{ (t.diserahkan or 0) | angka }}</td>
+          <td class="angka">{{ (t.jumlah - (t.diserahkan or 0)) | angka }}</td>
+          <td class="angka">{{ (t.cocok or 0) | angka }}</td>
+          <td class="angka">{{ (t.jumlah - (t.cocok or 0)) | angka }}</td>
+        </tr>
+      {% else %}
+        <tr><td colspan="6" class="kosong">Belum ada data residu.</td></tr>
+      {% endfor %}
+      </tbody>
+      {% if per_tahun %}
+        {% set n = per_tahun | sum(attribute='jumlah') %}
+        {% set d = per_tahun | sum(attribute='diserahkan') %}
+        {% set c = per_tahun | sum(attribute='cocok') %}
+        <tfoot>
+          <tr class="total besar">
+            <td>SELURUH TAHUN</td>
+            <td class="angka">{{ n | angka }}</td>
+            <td class="angka">{{ d | angka }}</td>
+            <td class="angka">{{ (n - d) | angka }}</td>
+            <td class="angka">{{ c | angka }}</td>
+            <td class="angka">{{ (n - c) | angka }}</td>
+          </tr>
+        </tfoot>
+      {% endif %}
+    </table>
+  </div>
+</div>
+
+<div class="kartu">
+  <h2>Kode tipologi permasalahan</h2>
+  <p class="kecil redup" style="margin-top:0">
+    Keterangan tiap kode tidak ikut tertulis di berkas Excel, jadi diisi sendiri di
+    sini. Angka di belakang kode adalah jumlah baris residu yang memakainya
+    mengikuti saringan yang sedang aktif.
+  </p>
+  <form method="post" action="/residu/tipologi">
+    <input type="hidden" name="kembali_ke" value="{{ kembali_ke }}">
+    <div class="gulir">
+      <table>
+        <thead>
+          <tr><th>Kode</th><th class="angka">Jumlah</th><th>Keterangan</th></tr>
+        </thead>
+        <tbody>
+        {% for t in daftar_tipologi %}
+          <tr>
+            <td class="mono nowrap">{{ t.kode }}</td>
+            <td class="angka">
+              <a href="/residu?tipologi={{ t.kode }}">{{ hitung_tipologi.get(t.kode, 0) | angka }}</a>
+            </td>
+            <td>
+              {% if admin %}
+                <input type="text" name="nama_{{ t.kode }}" value="{{ t.nama or '' }}"
+                       class="lebar-penuh" placeholder="keterangan kode {{ t.kode }}">
+              {% else %}
+                {{ t.nama or '—' }}
+              {% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% if admin %}
+      <p style="margin:12px 0 0"><button type="submit" class="hijau">Simpan keterangan</button></p>
+    {% endif %}
+  </form>
+</div>
+
+{% endblock %}

@@ -1,0 +1,205 @@
+{% extends "dasar.html" %}
+{% block judul %}Impor Residu PTSL — Aplikasi Warkah{% endblock %}
+{% block isi %}
+
+<p class="kecil"><a href="/residu">‹ Kembali ke daftar residu</a></p>
+<h1>Impor residu PTSL</h1>
+<p class="jelas">
+  Unggah berkas <span class="mono">RESIDU PTSL.xlsx</span>. Yang dibaca hanya lembar
+  bernama <span class="mono">Tipologi &lt;tahun&gt;</span> — lembar rekap
+  <span class="mono">RESIDU &lt;tahun&gt;</span> dan pivot dilewati. Nomor hak tiap
+  baris dicocokkan dengan tabel bidang; yang belum ketemu tetap disimpan dan bisa
+  dicocokkan lagi nanti.
+</p>
+
+<div class="kisi k3">
+  <div class="angka-kotak">
+    <div class="nilai">{{ ringkas.baris | angka }}</div>
+    <div class="label">Baris residu tersimpan</div>
+  </div>
+  <div class="angka-kotak ungu">
+    <div class="nilai">{{ (ringkas.cocok or 0) | angka }}</div>
+    <div class="label">Sudah cocok dengan bidang</div>
+  </div>
+  <div class="angka-kotak hijau">
+    <div class="nilai">{{ ringkas.tahun | angka }}</div>
+    <div class="label">Tahun anggaran</div>
+  </div>
+</div>
+
+{% if galat %}
+  <div class="pesan awas">{{ galat }}</div>
+{% endif %}
+
+<div class="kartu">
+  <h2>Pilih berkas</h2>
+  <form method="post" action="/residu/impor/jalankan" enctype="multipart/form-data">
+
+    <div class="bidang-isian isian-lebar">
+      <label for="berkas">Berkas Excel / CSV (boleh banyak sekaligus)</label>
+      <input type="file" id="berkas" name="berkas" multiple required
+             accept=".xlsx,.xlsm,.xls,.csv">
+      <p class="kecil redup" style="margin:6px 0 0">
+        Satu berkas boleh memuat banyak tahun sekaligus; tiap lembar
+        <span class="mono">Tipologi &lt;tahun&gt;</span> diproses sendiri-sendiri.
+      </p>
+    </div>
+
+    <div class="baris-borang">
+      <div class="bidang-isian isian-lebar">
+        <label for="mode">Cara menulis data</label>
+        <select id="mode" name="mode">
+          {% for kode, keterangan in mode_pilihan.items() %}
+            <option value="{{ kode }}" {{ 'selected' if terpilih.mode == kode }}>{{ keterangan }}</option>
+          {% endfor %}
+        </select>
+      </div>
+    </div>
+
+    <p class="kecil" style="margin:0 0 12px">
+      <label style="font-weight:500">
+        <input type="checkbox" name="arsip" value="1" {{ 'checked' if terpilih.arsip }}>
+        Simpan salinan berkas ke folder <span class="mono">unggahan/residu/</span>
+      </label>
+    </p>
+
+    <button type="submit" name="aksi" value="uji" class="kedua">Periksa dulu (tanpa menyimpan)</button>
+    <button type="submit" name="aksi" value="simpan" class="hijau"
+            onclick="return confirm('Simpan hasil impor residu ke basis data?')">Simpan ke basis data</button>
+  </form>
+</div>
+
+{% if hasil %}
+  {% set t = hasil.total %}
+  <div class="pesan {{ 'sukses' if hasil.simpan else 'awas' }}">
+    {% if hasil.simpan %}
+      Impor tersimpan: {{ t.berkas }} berkas, {{ t.lembar }} lembar —
+      {{ t.baru | angka }} baris baru, {{ t.diperbarui | angka }} diperbarui.
+    {% else %}
+      Hasil uji coba — <strong>belum ada yang disimpan</strong>. Bila angka di bawah
+      sudah sesuai, tekan “Simpan ke basis data” dengan berkas yang sama.
+    {% endif %}
+    {% if t.galat %} <span class="tanda merah">{{ t.galat }} lembar gagal</span>{% endif %}
+  </div>
+
+  <div class="kisi k6">
+    <div class="angka-kotak">
+      <div class="nilai">{{ t.baris | angka }}</div><div class="label">Baris dibaca</div>
+    </div>
+    <div class="angka-kotak hijau">
+      <div class="nilai">{{ t.baru | angka }}</div><div class="label">Baris baru</div>
+    </div>
+    <div class="angka-kotak oranye">
+      <div class="nilai">{{ t.diperbarui | angka }}</div><div class="label">Diperbarui</div>
+    </div>
+    <div class="angka-kotak">
+      <div class="nilai">{{ t.sama | angka }}</div><div class="label">Sudah sama</div>
+    </div>
+    <div class="angka-kotak ungu">
+      <div class="nilai">{{ t.cocok | angka }}</div><div class="label">Cocok dengan bidang</div>
+    </div>
+    <div class="angka-kotak merah">
+      <div class="nilai">{{ t.belum_cocok | angka }}</div><div class="label">Belum tercocokkan</div>
+    </div>
+  </div>
+
+  {% if t.lewat or t.ganda %}
+    <p class="kecil redup">
+      {{ t.lewat | angka }} baris dilewati (bukan baris data, mis. baris nomor kolom),
+      {{ t.ganda | angka }} nomor hak muncul lebih dari sekali di dalam berkas —
+      yang dipakai baris terakhir.
+    </p>
+  {% endif %}
+
+  <div class="kartu rapat">
+    <div class="gulir">
+      <table>
+        <thead>
+          <tr>
+            <th>Lembar</th><th>Tahun</th>
+            <th class="angka">Baris</th><th class="angka">Baru</th>
+            <th class="angka">Diperbarui</th><th class="angka">Sama</th>
+            <th class="angka">Cocok</th><th class="angka">Belum cocok</th>
+            <th>Keterangan</th>
+          </tr>
+        </thead>
+        <tbody>
+        {% for r in hasil.rincian %}
+          <tr>
+            <td class="kecil">{{ r.lembar or r.berkas }}</td>
+            <td>{{ r.tahun or '—' }}</td>
+            <td class="angka">{{ r.baris | angka }}</td>
+            <td class="angka">{{ r.baru | angka }}</td>
+            <td class="angka">{{ r.diperbarui | angka }}</td>
+            <td class="angka">{{ r.sama | angka }}</td>
+            <td class="angka">{{ r.cocok | angka }}</td>
+            <td class="angka">{{ r.belum_cocok | angka }}</td>
+            <td class="kecil">
+              {% if r.status == 'galat' %}
+                <span class="tanda merah">gagal</span> {{ r.pesan }}
+              {% elif r.status == 'kosong' %}
+                <span class="tanda abu">kosong</span> {{ r.pesan }}
+              {% else %}
+                {% for c in r.catatan %}<div class="redup">{{ c }}</div>{% endfor %}
+              {% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  {% if hasil.arsip %}
+    <p class="kecil redup">Salinan berkas disimpan di <span class="mono">{{ hasil.arsip }}</span>.</p>
+  {% endif %}
+{% endif %}
+
+<div class="kartu">
+  <h2>Kolom yang dibaca</h2>
+  <p class="kecil redup" style="margin-top:0">
+    Nama kolom tidak harus persis: spasi, titik, dan besar-kecil huruf diabaikan.
+    Kolom yang tidak ada akan diisi kosong. Hanya <span class="mono">Nomor Hak</span>
+    yang wajib ada.
+  </p>
+  <div class="gulir">
+    <table>
+      <thead><tr><th>Kolom</th><th>Isi</th></tr></thead>
+      <tbody>
+        <tr><td class="mono">Nomor Hak</td><td>wajib — kunci pencocokan ke tabel bidang</td></tr>
+        <tr><td class="mono">Tahun Berkas</td><td>tahun anggaran; bila kosong diambil dari nama lembar</td></tr>
+        <tr><td class="mono">Nomor Berkas</td><td>nomor berkas permohonan</td></tr>
+        <tr><td class="mono">Desa/Kelurahan</td><td>dipakai melengkapi nomor hak pendek dan menentukan wilayah</td></tr>
+        <tr><td class="mono">Kecamatan</td><td>hanya dicatat sebagai teks apa adanya</td></tr>
+        <tr><td class="mono">Jenis Hak</td><td>teks apa adanya, mis. “Hak Milik”</td></tr>
+        <tr><td class="mono">Nama</td><td>nama pemegang hak</td></tr>
+        <tr><td class="mono">Nomor Seri Blanko</td><td>nomor seri blanko sertipikat</td></tr>
+        <tr><td class="mono">Luas</td><td>angka, meter persegi</td></tr>
+        <tr><td class="mono">Sudah Diserahkan</td><td>True/Ya/Sudah dianggap sudah diserahkan</td></tr>
+        <tr><td class="mono">T1.1 … T8</td><td>kolom centang tipologi; sel apa pun yang terisi dihitung tercentang</td></tr>
+        <tr><td class="mono">Keterangan</td><td>catatan bebas dari berkas</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <h2>Bentuk nomor hak yang dikenali</h2>
+  <div class="gulir">
+    <table>
+      <thead><tr><th>Bentuk di berkas</th><th>Diubah menjadi</th></tr></thead>
+      <tbody>
+        <tr><td class="mono">30051802100414</td><td class="mono">30.05.18.02.1.00414</td></tr>
+        <tr><td class="mono">00156</td>
+            <td>dilengkapi kode desa dari kolom Desa, dianggap Hak Milik</td></tr>
+        <tr><td class="mono">3005.000002708.0</td>
+            <td>bentuk KKP baru, disimpan apa adanya — belum ada padanannya di tabel bidang</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<p class="kecil redup">
+  Uji coba membaca seluruh berkas dan menghitung perubahannya, lalu membatalkan
+  semuanya — aman dijalankan berkali-kali. Kolom kerja (status, tindak lanjut,
+  petugas, tanggal serah, penerima, catatan) tidak pernah ditimpa impor ulang.
+</p>
+
+{% endblock %}

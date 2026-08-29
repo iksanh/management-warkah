@@ -297,9 +297,9 @@ def proses_desa(kon, wilayah, kode_hak, kode, nama, baris, opsi, berkas):
 def buang_sisa(kon, lama, isi):
     """Hapus bidang lama yang tidak ada lagi di berkas, berikut salinan gandanya.
 
-    Bidang yang sudah punya catatan kerja (penyimpanan, pemeriksaan, atau
-    peminjaman) tidak pernah dihapus supaya hasil inventarisasi tidak ikut
-    hilang; jumlahnya dilaporkan sebagai "ditahan".
+    Bidang yang sudah punya catatan kerja (penyimpanan, pemeriksaan,
+    peminjaman, atau residu) tidak pernah dihapus supaya hasil inventarisasi
+    tidak ikut hilang; jumlahnya dilaporkan sebagai "ditahan".
     """
     sisa = []
     for kunci, daftar in lama.items():
@@ -308,7 +308,7 @@ def buang_sisa(kon, lama, isi):
     if not sisa:
         return 0, 0
     dipakai = set()
-    for tabel in ("penyimpanan", "pemeriksaan", "peminjaman"):
+    for tabel in ("penyimpanan", "pemeriksaan", "peminjaman", "residu"):
         for potong in (sisa[i:i + 400] for i in range(0, len(sisa), 400)):
             dipakai.update(r[0] for r in kon.execute(
                 "SELECT bidang_id FROM %s WHERE bidang_id IN (%s)"

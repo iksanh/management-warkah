@@ -24,6 +24,7 @@ from starlette.templating import Jinja2Templates
 import auth
 import db
 import impor
+import impor_residu
 import laporan
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -305,10 +306,13 @@ async def detail(request: Request):
         "WHERE b.id = ?", (bid,)).fetchone()
     daftar_petugas = kon.execute(
         "SELECT nama FROM petugas WHERE aktif=1 ORDER BY nama").fetchall()
+    baris_residu = kon.execute(
+        "SELECT * FROM residu WHERE bidang_id = ?", (bid,)).fetchone()
     kon.close()
     return templates.TemplateResponse(request, "detail.html", konteks(
         request, b=b, d=detail_bidang, pemeriksaan=pemeriksaan, penyimpanan=penyimpanan,
-        riwayat=riwayat, daftar_petugas=daftar_petugas, hari_ini=hari_ini(),
+        riwayat=riwayat, daftar_petugas=daftar_petugas, residu=baris_residu,
+        hari_ini=hari_ini(),
         jatuh_tempo=(date.today() + timedelta(days=LAMA_PINJAM_HARI)).isoformat()))
 
 
@@ -972,6 +976,392 @@ async def jalankan_impor(request: Request):
         galat=galat, terpilih={"mode": mode, "buat_desa": buat_desa, "arsip": arsip}))
 
 
+# ------------------------------------------------------------------- residu
+# Residu PTSL: sertipikat yang sudah terbit tetapi belum diserahkan ke pemohon.
+# Satu baris residu menempel satu-lawan-satu ke satu bidang lewat bidang_id.
+
+SQL_RESIDU = """
+SELECT r.*, w.nama_desa, w.nama_kecamatan, w.kode_desa,
+       b.surat_ukur, b.nib, b.pemilik_akhir, b.luas AS luas_bidang,
+       s.ruang, s.lemari, s.rak, s.box
+FROM residu r
+LEFT JOIN wilayah w     ON w.id = r.wilayah_id
+LEFT JOIN bidang b      ON b.id = r.bidang_id
+LEFT JOIN penyimpanan s ON s.bidang_id = r.bidang_id
+"""
+
+# kolom kerja: hanya ini yang boleh diubah petugas, sisanya milik hasil impor
+KOLOM_KERJA = ["status", "tindak_lanjut", "petugas", "tanggal_serah", "penerima",
+               "catatan"]
+
+
+def filter_residu(qp, kecuali=()):
+    """Susun potongan WHERE + parameter untuk daftar residu.
+
+    ``kecuali`` berisi nama saringan yang dilewati; dipakai untuk menghitung
+    jumlah per tahun tanpa ikut terpotong oleh tahun yang sedang dipilih.
+    """
+    syarat, par = [], []
+    q = (qp.get("q") or "").strip() if "q" not in kecuali else ""
+    if q:
+        pola = "%" + q + "%"
+        # tahun ikut dicari supaya mengetik "2021" di kotak kata kunci langsung
+        # menyaring tahun anggarannya, bukan cuma nomor berkas yang memuat 2021
+        syarat.append("(r.tahun LIKE ? OR r.nomor_hak LIKE ? OR r.nomor_hak_asli LIKE ? "
+                      "OR r.nama_pemegang LIKE ? OR r.nomor_berkas LIKE ? "
+                      "OR r.no_seri_blanko LIKE ?)")
+        par += [pola] * 6
+    for kolom, kunci in (("r.tahun", "tahun"), ("w.nama_kecamatan", "kecamatan"),
+                         ("r.wilayah_id", "desa"), ("r.status", "status"),
+                         ("r.petugas", "petugas")):
+        nilai = (qp.get(kunci) or "").strip() if kunci not in kecuali else ""
+        if nilai:
+            syarat.append("%s = ?" % kolom)
+            par.append(nilai)
+
+    t = (qp.get("tipologi") or "").strip() if "tipologi" not in kecuali else ""
+    if t:
+        # tipologi disimpan sebagai daftar kode dipisah koma, mis. "T1.1,T2.2";
+        # koma pembungkus dipakai agar T1.1 tidak ikut cocok dengan T1.10
+        syarat.append("(',' || r.tipologi || ',') LIKE ?")
+        par.append("%," + t + ",%")
+    elif (qp.get("tipologi_kosong") or "") == "1":
+        syarat.append("NULLIF(TRIM(COALESCE(r.tipologi, '')), '') IS NULL")
+
+    serah = (qp.get("serah") or "").strip() if "serah" not in kecuali else ""
+    if serah == "belum":
+        syarat.append("r.sudah_diserahkan = 0")
+    elif serah == "sudah":
+        syarat.append("r.sudah_diserahkan = 1")
+
+    bl = (qp.get("blanko") or "").strip() if "blanko" not in kecuali else ""
+    if bl == "belum":
+        syarat.append("r.blanko_ada IS NULL")
+    elif bl:
+        syarat.append("r.blanko_ada = ?")
+        par.append(bl)
+
+    cocok = (qp.get("cocok") or "").strip() if "cocok" not in kecuali else ""
+    if cocok == "cocok":
+        syarat.append("r.bidang_id IS NOT NULL")
+    elif cocok == "belum":
+        syarat.append("r.bidang_id IS NULL")
+
+    where = (" WHERE " + " AND ".join(syarat)) if syarat else ""
+    return where, par
+
+
+def angka_residu(kon, where="", par=()):
+    """Angka besar untuk kepala halaman residu."""
+    return kon.execute(
+        "SELECT COUNT(*) jumlah, "
+        "SUM(CASE WHEN r.sudah_diserahkan = 1 THEN 1 ELSE 0 END) diserahkan, "
+        "SUM(CASE WHEN r.bidang_id IS NOT NULL THEN 1 ELSE 0 END) cocok, "
+        "SUM(CASE WHEN r.status IS NOT NULL AND r.status <> 'Belum Ditindaklanjuti' "
+        "         THEN 1 ELSE 0 END) ditindaklanjuti, "
+        "SUM(CASE WHEN r.blanko_ada = 'Ada' THEN 1 ELSE 0 END) blanko_ada, "
+        "SUM(CASE WHEN r.blanko_ada IS NULL THEN 1 ELSE 0 END) blanko_belum "
+        "FROM residu r LEFT JOIN wilayah w ON w.id = r.wilayah_id" + where,
+        list(par)).fetchone()
+
+
+def rekap_tahun(kon, qp):
+    """Jumlah residu per tahun anggaran, mengikuti saringan selain tahun.
+
+    Tahun dihitung tanpa memperhatikan tahun yang sedang dipilih supaya tab
+    tahun tetap menampilkan angka seluruh tahun.
+    """
+    where, par = filter_residu(qp, kecuali=("tahun",))
+    return kon.execute(
+        "SELECT COALESCE(r.tahun, '(tanpa tahun)') tahun, COUNT(*) jumlah, "
+        "SUM(CASE WHEN r.sudah_diserahkan = 1 THEN 1 ELSE 0 END) diserahkan, "
+        "SUM(CASE WHEN r.bidang_id IS NOT NULL THEN 1 ELSE 0 END) cocok "
+        "FROM residu r LEFT JOIN wilayah w ON w.id = r.wilayah_id" + where
+        + " GROUP BY r.tahun ORDER BY r.tahun", par).fetchall()
+
+
+async def residu(request: Request):
+    qp = request.query_params
+    try:
+        hal = max(1, int(qp.get("hal", 1)))
+    except ValueError:
+        hal = 1
+    where, par = filter_residu(qp)
+
+    kon = db.sambung()
+    ringkas = angka_residu(kon, where, par)
+    jumlah = ringkas["jumlah"]
+    baris = kon.execute(
+        SQL_RESIDU + where + " ORDER BY r.tahun, w.nama_kecamatan, w.nama_desa, "
+        "r.nomor_hak LIMIT ? OFFSET ?", par + [PER_HAL, (hal - 1) * PER_HAL]).fetchall()
+
+    per_tahun = rekap_tahun(kon, qp)
+    # daftar isian tahun sengaja tidak ikut disaring, supaya tahun yang sedang
+    # dipilih tetap ada di dalam kotaknya walau saringan lain mengosongkannya
+    semua_tahun = kon.execute(
+        "SELECT DISTINCT tahun FROM residu WHERE tahun IS NOT NULL "
+        "ORDER BY tahun").fetchall()
+    kecamatan = kon.execute(
+        "SELECT DISTINCT w.nama_kecamatan FROM residu r JOIN wilayah w "
+        "ON w.id = r.wilayah_id ORDER BY w.nama_kecamatan").fetchall()
+    desa = [dict(r) for r in kon.execute(
+        "SELECT DISTINCT w.id, w.nama_desa, w.nama_kecamatan FROM residu r "
+        "JOIN wilayah w ON w.id = r.wilayah_id "
+        "ORDER BY w.nama_kecamatan, w.nama_desa")]
+    daftar_tipologi = kon.execute(
+        "SELECT kode, kelompok, nama FROM tipologi ORDER BY urut").fetchall()
+    # berapa baris memakai tiap kode tipologi, mengikuti saringan yang sedang aktif
+    hitung_tipologi = {}
+    for t in daftar_tipologi:
+        hitung_tipologi[t["kode"]] = kon.execute(
+            "SELECT COUNT(*) FROM residu r LEFT JOIN wilayah w ON w.id = r.wilayah_id"
+            + (where + " AND " if where else " WHERE ")
+            + "(',' || r.tipologi || ',') LIKE ?", par + ["%," + t["kode"] + ",%"]
+        ).fetchone()[0]
+    daftar_petugas = kon.execute(
+        "SELECT nama FROM petugas WHERE aktif = 1 ORDER BY nama").fetchall()
+    kon.close()
+
+    kec_terpilih = (qp.get("kecamatan") or "").strip()
+    desa_tampil = [d for d in desa
+                   if not kec_terpilih or d["nama_kecamatan"] == kec_terpilih]
+
+    dasar = {k: v for k, v in qp.items() if k != "hal" and v}
+    sisa = [(k, v) for k, v in qp.multi_items() if k != "tersimpan" and v]
+    kembali_ke = "/residu" + (("?" + "&".join(
+        "%s=%s" % (k, quote(v, safe="")) for k, v in sisa)) if sisa else "")
+
+    return templates.TemplateResponse(request, "residu.html", konteks(
+        request, baris=baris, jumlah=jumlah, ringkas=ringkas, hal=hal,
+        per_hal=PER_HAL, halaman_akhir=max(1, (jumlah + PER_HAL - 1) // PER_HAL),
+        per_tahun=per_tahun, semua_tahun=semua_tahun,
+        kecamatan=kecamatan, desa=desa, desa_tampil=desa_tampil,
+        kec_terpilih=kec_terpilih, daftar_tipologi=daftar_tipologi,
+        hitung_tipologi=hitung_tipologi, daftar_petugas=daftar_petugas,
+        qp=qp, dasar=dasar, kembali_ke=kembali_ke, hari_ini=hari_ini(),
+        tersimpan=qp.get("tersimpan")))
+
+
+async def simpan_residu(request: Request):
+    """Simpan kolom kerja satu baris residu; kolom hasil impor tidak disentuh."""
+    rid = int(request.path_params["residu_id"])
+    form = await request.form()
+    siapa = petugas_aktif(request)
+
+    nilai = [isi(form, k) for k in KOLOM_KERJA]
+    # petugas hanya boleh mencatat atas namanya sendiri; admin bebas memilih
+    if not is_admin(request):
+        nilai[KOLOM_KERJA.index("petugas")] = siapa or None
+    serah = 1 if form.get("sudah_diserahkan") == "1" else 0
+
+    kon = db.sambung()
+    ada = kon.execute("SELECT nomor_hak FROM residu WHERE id = ?", (rid,)).fetchone()
+    if ada is None:
+        kon.close()
+        return Response("Data residu tidak ditemukan", status_code=404)
+    kon.execute(
+        "UPDATE residu SET %s, sudah_diserahkan = ?, diubah_oleh = ?, "
+        "diubah_pada = ? WHERE id = ?"
+        % ", ".join("%s = ?" % k for k in KOLOM_KERJA),
+        nilai + [serah, siapa or None, sekarang(), rid])
+    tulis_log(kon, siapa, "Simpan residu", None,
+              "%s: %s" % (ada["nomor_hak"] or "-", isi(form, "status") or "-"))
+    kon.commit()
+    kon.close()
+
+    tujuan = form.get("kembali_ke") or "/residu"
+    pisah = "&" if "?" in tujuan else "?"
+    return RedirectResponse("%s%stersimpan=1" % (tujuan, pisah), status_code=303)
+
+
+async def centang_blanko(request: Request):
+    """Simpan centang blanko massal dari halaman residu.
+
+    Sama seperti centang BT/SU di katalog: hanya baris yang benar-benar diubah
+    petugas yang dikirim, sehingga baris lain tidak ikut tertimpa. Ini semata
+    mencatat kondisi yang ada - blanko fisiknya ketemu atau tidak - dan tidak
+    dicocokkan dengan nomor seri blanko di berkas.
+    """
+    form = await request.form()
+    siapa = petugas_aktif(request)
+
+    diubah = [i for i in form.getlist("ubah") if i.isdigit()]
+    if not diubah:
+        return RedirectResponse(form.get("kembali_ke") or "/residu", status_code=303)
+
+    # petugas hanya boleh mencatat atas namanya sendiri; admin bebas memilih
+    petugas_pilihan = isi(form, "petugas") if is_admin(request) else siapa
+    tanggal = isi(form, "tanggal") or hari_ini()
+    tempat = isi(form, "tempat")
+
+    kon = db.sambung()
+    n = 0
+    for rid in diubah:
+        ada = "Ada" if form.get("blanko_" + rid) == "1" else "Tidak Ada"
+        cur = kon.execute(
+            "UPDATE residu SET blanko_ada = ?, blanko_petugas = ?, "
+            "blanko_tanggal = ?, blanko_tempat = COALESCE(?, blanko_tempat), "
+            "blanko_diubah = ? WHERE id = ?",
+            (ada, petugas_pilihan, tanggal, tempat, sekarang(), int(rid)))
+        n += cur.rowcount
+
+    tulis_log(kon, siapa, "Centang blanko residu", None, "%d baris" % n)
+    kon.commit()
+    kon.close()
+
+    tujuan = form.get("kembali_ke") or "/residu"
+    pisah = "&" if "?" in tujuan else "?"
+    return RedirectResponse("%s%stercentang=%d" % (tujuan, pisah, n), status_code=303)
+
+
+JUDUL_RESIDU_CSV = ["Tahun", "Nomor_Berkas", "Nomor_Hak", "Nomor_Hak_Asli",
+                    "Kecamatan", "Desa", "Nama_Pemegang", "No_Seri_Blanko",
+                    "Luas", "Sudah_Diserahkan", "Tipologi", "Keterangan",
+                    "Status", "Tindak_Lanjut", "Petugas", "Tanggal_Serah",
+                    "Penerima", "Catatan", "Blanko_Ada", "Blanko_Petugas",
+                    "Blanko_Tanggal", "Cocok_Dengan_Bidang", "Surat_Ukur", "NIB"]
+
+
+async def residu_csv(request: Request):
+    qp = request.query_params
+    where, par = filter_residu(qp)
+    kon = db.sambung()
+    baris = kon.execute(
+        SQL_RESIDU + where + " ORDER BY r.tahun, w.nama_kecamatan, w.nama_desa, "
+        "r.nomor_hak", par).fetchall()
+    kon.close()
+
+    keluar = [";".join(JUDUL_RESIDU_CSV)]
+    for r in baris:
+        keluar.append(";".join(sel_csv(v) for v in (
+            r["tahun"], r["nomor_berkas"], r["nomor_hak"], r["nomor_hak_asli"],
+            r["nama_kecamatan"] or r["kecamatan_teks"],
+            r["nama_desa"] or r["desa_teks"], r["nama_pemegang"],
+            r["no_seri_blanko"], r["luas"],
+            "Sudah" if r["sudah_diserahkan"] else "Belum",
+            r["tipologi"], r["keterangan"], r["status"], r["tindak_lanjut"],
+            r["petugas"], r["tanggal_serah"], r["penerima"], r["catatan"],
+            r["blanko_ada"] or "Belum Dicek", r["blanko_petugas"],
+            r["blanko_tanggal"],
+            "Ya" if r["bidang_id"] else "Belum", r["surat_ukur"], r["nib"])))
+
+    isi_csv = "﻿" + "\r\n".join(keluar) + "\r\n"
+    # nama berkas ikut menyebut tahun supaya unduhan tiap tahun tidak tertukar
+    th = re.sub(r"[^0-9]", "", (qp.get("tahun") or ""))[:4]
+    return Response(isi_csv.encode("utf-8"), media_type="text/csv; charset=utf-8",
+                    headers={"Content-Disposition":
+                             'attachment; filename="residu_ptsl%s.csv"'
+                             % (("_" + th) if th else "")})
+
+
+async def simpan_tipologi(request: Request):
+    """Isi/ubah keterangan kode tipologi; keterangannya tidak ada di berkas Excel."""
+    if not is_admin(request):
+        return tolak(request, "Keterangan tipologi hanya bisa diubah oleh Admin.")
+    form = await request.form()
+    kon = db.sambung()
+    for r in kon.execute("SELECT kode FROM tipologi").fetchall():
+        kunci = "nama_" + r["kode"]
+        if kunci in form:
+            kon.execute("UPDATE tipologi SET nama = ? WHERE kode = ?",
+                        (isi(form, kunci), r["kode"]))
+    tulis_log(kon, petugas_aktif(request), "Ubah keterangan tipologi residu")
+    kon.commit()
+    kon.close()
+    return RedirectResponse(form.get("kembali_ke") or "/residu", status_code=303)
+
+
+async def cocokkan_residu(request: Request):
+    """Cocokkan ulang baris residu yang bidang_id-nya masih kosong."""
+    if not is_admin(request):
+        return tolak(request, "Pencocokan ulang hanya bisa dilakukan oleh Admin.")
+    form = await request.form()
+    kon = db.sambung()
+    n = impor_residu.cocokkan_ulang(kon)
+    tulis_log(kon, petugas_aktif(request), "Cocokkan ulang residu", None,
+              "%d baris tercocokkan" % n)
+    kon.commit()
+    kon.close()
+    tujuan = form.get("kembali_ke") or "/residu"
+    pisah = "&" if "?" in tujuan else "?"
+    return RedirectResponse("%s%stercocok=%d" % (tujuan, pisah, n), status_code=303)
+
+
+def ringkas_residu():
+    """Angka besar isi tabel residu untuk kepala halaman impor."""
+    kon = db.sambung()
+    r = kon.execute(
+        "SELECT COUNT(*) baris, "
+        "SUM(CASE WHEN bidang_id IS NOT NULL THEN 1 ELSE 0 END) cocok, "
+        "COUNT(DISTINCT tahun) tahun FROM residu").fetchone()
+    kon.close()
+    return r
+
+
+TERPILIH_RESIDU = {"mode": "perbarui", "arsip": True}
+
+
+async def halaman_impor_residu(request: Request):
+    """Borang unggah berkas RESIDU PTSL."""
+    if not is_admin(request):
+        return tolak(request, "Impor residu hanya bisa dilakukan oleh Admin.")
+    return templates.TemplateResponse(request, "residu_impor.html", konteks(
+        request, ringkas=ringkas_residu(), mode_pilihan=impor_residu.MODE,
+        hasil=None, terpilih=dict(TERPILIH_RESIDU)))
+
+
+async def jalankan_impor_residu(request: Request):
+    if not is_admin(request):
+        return tolak(request, "Impor residu hanya bisa dilakukan oleh Admin.")
+
+    try:
+        form = await request.form(max_files=MAKS_BERKAS + 10, max_fields=50)
+    except MultiPartException:
+        return templates.TemplateResponse(request, "residu_impor.html", konteks(
+            request, ringkas=ringkas_residu(), mode_pilihan=impor_residu.MODE,
+            hasil=None, galat="Unggahan tidak terbaca. Kirim paling banyak %d "
+                              "berkas sekali jalan." % MAKS_BERKAS,
+            terpilih=dict(TERPILIH_RESIDU)), status_code=400)
+
+    mode = form.get("mode") if form.get("mode") in impor_residu.MODE else "perbarui"
+    arsip = form.get("arsip") == "1"
+    simpan = form.get("aksi") == "simpan"
+
+    berkas, galat = [], None
+    for item in form.getlist("berkas"):
+        if not isinstance(item, UploadFile) or not item.filename:
+            continue
+        berkas.append((item.filename, await item.read()))
+        await item.close()
+    if len(berkas) > MAKS_BERKAS:
+        galat = "Maksimal %d berkas sekali unggah, yang dipilih %d." % (
+            MAKS_BERKAS, len(berkas))
+    elif not berkas:
+        galat = "Belum ada berkas yang dipilih."
+
+    hasil = None
+    if not galat:
+        try:
+            hasil = impor_residu.jalankan(berkas, mode=mode, simpan=simpan,
+                                          arsip=arsip)
+        except Exception as e:                                  # noqa: BLE001
+            galat = "Impor dihentikan, tidak ada perubahan yang disimpan: %s" % e
+
+    if hasil and simpan:
+        t = hasil["total"]
+        kon = db.sambung()
+        tulis_log(kon, petugas_aktif(request), "Impor residu PTSL", None,
+                  "%d berkas, %d lembar, mode %s: %d baru, %d diperbarui, "
+                  "%d cocok" % (t["berkas"], t["lembar"], mode, t["baru"],
+                                t["diperbarui"], t["cocok"]))
+        kon.commit()
+        kon.close()
+
+    return templates.TemplateResponse(request, "residu_impor.html", konteks(
+        request, ringkas=ringkas_residu(), mode_pilihan=impor_residu.MODE,
+        hasil=hasil, galat=galat, terpilih={"mode": mode, "arsip": arsip}))
+
+
 # --------------------------------------------------------------- akun & masuk
 async def masuk(request: Request):
     tujuan = request.query_params.get("next") or "/"
@@ -1177,6 +1567,14 @@ rute = [
     Route("/rekap/kkp", simpan_kkp, methods=["POST"]),
     Route("/impor", halaman_impor),
     Route("/impor/jalankan", jalankan_impor, methods=["POST"]),
+    Route("/residu", residu),
+    Route("/residu.csv", residu_csv),
+    Route("/residu/centang", centang_blanko, methods=["POST"]),
+    Route("/residu/{residu_id:int}/simpan", simpan_residu, methods=["POST"]),
+    Route("/residu/tipologi", simpan_tipologi, methods=["POST"]),
+    Route("/residu/cocokkan", cocokkan_residu, methods=["POST"]),
+    Route("/residu/impor", halaman_impor_residu),
+    Route("/residu/impor/jalankan", jalankan_impor_residu, methods=["POST"]),
     Mount("/static", StaticFiles(directory=os.path.join(BASE_DIR, "static")), name="static"),
 ]
 
