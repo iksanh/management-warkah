@@ -165,6 +165,8 @@
 
   <p class="kecil" style="margin:12px 0 0; display:flex; gap:8px; flex-wrap:wrap; align-items:center">
     <a class="tombol kecil kedua" href="/residu.csv{{ ('?' ~ request.url.query) if request.url.query }}">Unduh CSV</a>
+    <a class="tombol kecil kedua" href="/residu/rekap"
+       title="Rekap harian pengecekan blanko per petugas dan per desa">Rekap pengecekan blanko</a>
     {% if admin %}
       <a class="tombol kecil kedua" href="/residu/impor">Impor berkas residu</a>
       <form method="post" action="/residu/cocokkan" style="display:inline">

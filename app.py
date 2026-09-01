@@ -1214,6 +1214,237 @@ async def centang_blanko(request: Request):
     return RedirectResponse("%s%stercentang=%d" % (tujuan, pisah, n), status_code=303)
 
 
+# --------------------------------------------- rekap pengecekan blanko residu
+# Bagian residu yang dipakai berulang oleh rekap: baris residu beserta nama
+# wilayahnya, nama petugas pencentang, dan tanggal centangnya. blanko_ada hanya
+# terisi lewat tombol centang di halaman Residu, jadi "tidak kosong" berarti
+# blankonya memang sudah pernah dicek petugas.
+DARI_BLANKO = " FROM residu r LEFT JOIN wilayah w ON w.id = r.wilayah_id"
+SUDAH_DICEK = "NULLIF(TRIM(COALESCE(r.blanko_ada, '')), '') IS NOT NULL"
+PETUGAS_BLANKO = "COALESCE(NULLIF(TRIM(r.blanko_petugas), ''), '(tanpa petugas)')"
+TANGGAL_BLANKO = "COALESCE(NULLIF(r.blanko_tanggal, ''), '(tanpa tanggal)')"
+KEC_BLANKO = ("COALESCE(NULLIF(TRIM(w.nama_kecamatan), ''), "
+              "NULLIF(TRIM(r.kecamatan_teks), ''), '(tanpa kecamatan)')")
+DESA_BLANKO = ("COALESCE(NULLIF(TRIM(w.nama_desa), ''), "
+               "NULLIF(TRIM(r.desa_teks), ''), '(tanpa desa)')")
+
+
+def saring_blanko(qp):
+    """Susun saringan halaman rekap pengecekan blanko.
+
+    Dipisah dua supaya progres per desa punya penyebut yang benar: ``umum``
+    hanya menyaring tahun dan wilayah sehingga berlaku untuk seluruh baris
+    residu di desa itu, sedangkan ``cek`` menambahkan syarat blankonya sudah
+    dicek berikut batas tanggal, petugas, dan hasil pengecekannya.
+    """
+    def tgl(kunci):
+        v = (qp.get(kunci) or "").strip()
+        try:
+            return date.fromisoformat(v).isoformat()
+        except ValueError:
+            return None
+
+    dari, sampai = tgl("dari"), tgl("sampai")
+    if dari and sampai and dari > sampai:          # terbalik, tukar saja
+        dari, sampai = sampai, dari
+
+    umum, par_umum = [], []
+    for kolom, kunci in (("r.tahun", "tahun"), ("w.nama_kecamatan", "kecamatan"),
+                         ("r.wilayah_id", "desa")):
+        nilai = (qp.get(kunci) or "").strip()
+        if nilai:
+            umum.append("%s = ?" % kolom)
+            par_umum.append(nilai)
+
+    cek, par_cek = [SUDAH_DICEK], []
+    if dari:
+        cek.append("NULLIF(r.blanko_tanggal, '') >= ?")
+        par_cek.append(dari)
+    if sampai:
+        cek.append("NULLIF(r.blanko_tanggal, '') <= ?")
+        par_cek.append(sampai)
+    nama = (qp.get("petugas") or "").strip()
+    if nama:
+        cek.append(PETUGAS_BLANKO + " = ?")
+        par_cek.append(nama)
+    hasil = (qp.get("hasil") or "").strip()
+    if hasil:
+        cek.append("r.blanko_ada = ?")
+        par_cek.append(hasil)
+
+    return {
+        "dari": dari or "", "sampai": sampai or "", "petugas": nama, "hasil": hasil,
+        "where_umum": (" WHERE " + " AND ".join(umum)) if umum else "",
+        "par_umum": par_umum,
+        "where_cek": " WHERE " + " AND ".join(umum + cek),
+        "par_cek": par_umum + par_cek,
+    }
+
+
+def rincian_blanko(kon, s):
+    """Satu baris per tanggal + petugas + desa; inti rekap hariannya.
+
+    Dipakai bersama oleh halaman rekap dan unduhan CSV-nya supaya angka di
+    layar dan di berkas selalu sama.
+    """
+    return kon.execute(
+        "SELECT " + TANGGAL_BLANKO + " tanggal, " + PETUGAS_BLANKO + " nama, "
+        + KEC_BLANKO + " kecamatan, " + DESA_BLANKO + " desa, r.wilayah_id, "
+        "COUNT(*) dicek, "
+        "SUM(r.blanko_ada = 'Ada') ada, "
+        "SUM(r.blanko_ada <> 'Ada') tidak_ada, "
+        "GROUP_CONCAT(DISTINCT NULLIF(TRIM(r.blanko_tempat), '')) tempat"
+        + DARI_BLANKO + s["where_cek"] +
+        " GROUP BY tanggal, nama, kecamatan, desa "
+        "ORDER BY tanggal DESC, nama, kecamatan, desa", s["par_cek"]).fetchall()
+
+
+async def rekap_blanko(request: Request):
+    """Rekap harian pengecekan blanko, per petugas dan per desa/kecamatan."""
+    qp = request.query_params
+    s = saring_blanko(qp)
+    where, par = s["where_cek"], s["par_cek"]
+
+    kon = db.sambung()
+    ringkas = kon.execute(
+        "SELECT COUNT(*) dicek, "
+        "SUM(r.blanko_ada = 'Ada') ada, "
+        "SUM(r.blanko_ada <> 'Ada') tidak_ada, "
+        "COUNT(DISTINCT NULLIF(r.blanko_tanggal, '')) hari, "
+        "COUNT(DISTINCT " + PETUGAS_BLANKO + ") petugas, "
+        "COUNT(DISTINCT " + DESA_BLANKO + ") desa, "
+        "COUNT(DISTINCT " + KEC_BLANKO + ") kecamatan, "
+        "SUM(NULLIF(r.blanko_tanggal, '') IS NULL) tanpa_tanggal"
+        + DARI_BLANKO + where, par).fetchone()
+
+    # seluruh baris residu di tahun/wilayah yang sedang dipilih, sebagai
+    # pembanding: berapa yang sama sekali belum pernah dicek blankonya
+    lingkup = kon.execute(
+        "SELECT COUNT(*) jumlah, SUM(NOT (" + SUDAH_DICEK + ")) belum"
+        + DARI_BLANKO + s["where_umum"], s["par_umum"]).fetchone()
+
+    per_petugas = kon.execute(
+        "SELECT " + PETUGAS_BLANKO + " nama, COUNT(*) dicek, "
+        "SUM(r.blanko_ada = 'Ada') ada, "
+        "SUM(r.blanko_ada <> 'Ada') tidak_ada, "
+        "COUNT(DISTINCT NULLIF(r.blanko_tanggal, '')) hari, "
+        "COUNT(DISTINCT " + DESA_BLANKO + ") desa, "
+        "COUNT(DISTINCT " + KEC_BLANKO + ") kecamatan, "
+        "MIN(NULLIF(r.blanko_tanggal, '')) tgl_awal, "
+        "MAX(NULLIF(r.blanko_tanggal, '')) tgl_akhir"
+        + DARI_BLANKO + where + " GROUP BY nama ORDER BY dicek DESC, nama",
+        par).fetchall()
+
+    harian = kon.execute(
+        "SELECT " + TANGGAL_BLANKO + " tanggal, " + PETUGAS_BLANKO + " nama, "
+        "COUNT(*) dicek, "
+        "SUM(r.blanko_ada = 'Ada') ada, "
+        "SUM(r.blanko_ada <> 'Ada') tidak_ada, "
+        "COUNT(DISTINCT " + DESA_BLANKO + ") desa, "
+        "GROUP_CONCAT(DISTINCT " + DESA_BLANKO + ") daftar_desa, "
+        "GROUP_CONCAT(DISTINCT " + KEC_BLANKO + ") daftar_kecamatan"
+        + DARI_BLANKO + where + " GROUP BY tanggal, nama "
+        "ORDER BY tanggal DESC, dicek DESC, nama", par).fetchall()
+
+    # jumlah per hari saja, dipakai sebagai baris pembuka tiap tanggal
+    per_hari = {x["tanggal"]: x for x in kon.execute(
+        "SELECT " + TANGGAL_BLANKO + " tanggal, COUNT(*) dicek, "
+        "SUM(r.blanko_ada = 'Ada') ada, "
+        "SUM(r.blanko_ada <> 'Ada') tidak_ada, "
+        "COUNT(DISTINCT " + PETUGAS_BLANKO + ") petugas, "
+        "COUNT(DISTINCT " + DESA_BLANKO + ") desa"
+        + DARI_BLANKO + where + " GROUP BY tanggal", par)}
+
+    per_desa = [dict(x) for x in kon.execute(
+        "SELECT " + KEC_BLANKO + " kecamatan, " + DESA_BLANKO + " desa, "
+        "COUNT(*) dicek, "
+        "SUM(r.blanko_ada = 'Ada') ada, "
+        "SUM(r.blanko_ada <> 'Ada') tidak_ada, "
+        "COUNT(DISTINCT NULLIF(r.blanko_tanggal, '')) hari, "
+        "MIN(NULLIF(r.blanko_tanggal, '')) tgl_awal, "
+        "MAX(NULLIF(r.blanko_tanggal, '')) tgl_akhir, "
+        "GROUP_CONCAT(DISTINCT " + PETUGAS_BLANKO + ") daftar_petugas"
+        + DARI_BLANKO + where + " GROUP BY kecamatan, desa "
+        "ORDER BY kecamatan, desa", par)]
+
+    # penyebut progres per desa sengaja tidak ikut disaring tanggal/petugas:
+    # yang ditanya "berapa isi desa ini seluruhnya", bukan "berapa hari itu"
+    seluruh = {}
+    for t in kon.execute(
+            "SELECT " + KEC_BLANKO + " kecamatan, " + DESA_BLANKO + " desa, "
+            "COUNT(*) jumlah, SUM(NOT (" + SUDAH_DICEK + ")) belum"
+            + DARI_BLANKO + s["where_umum"] + " GROUP BY kecamatan, desa",
+            s["par_umum"]):
+        seluruh[(t["kecamatan"], t["desa"])] = t
+    for d in per_desa:
+        t = seluruh.get((d["kecamatan"], d["desa"]))
+        d["total"] = t["jumlah"] if t else d["dicek"]
+        d["belum"] = (t["belum"] or 0) if t else 0
+
+    rincian = rincian_blanko(kon, s)
+
+    # isian saringan; petugas diambil dari yang benar-benar pernah mencentang
+    batas = kon.execute(
+        "SELECT MIN(NULLIF(blanko_tanggal, '')) awal, "
+        "MAX(NULLIF(blanko_tanggal, '')) akhir FROM residu").fetchone()
+    daftar_petugas = [x[0] for x in kon.execute(
+        "SELECT DISTINCT " + PETUGAS_BLANKO + " FROM residu r WHERE "
+        + SUDAH_DICEK + " ORDER BY 1")]
+    semua_tahun = kon.execute(
+        "SELECT DISTINCT tahun FROM residu WHERE tahun IS NOT NULL "
+        "ORDER BY tahun").fetchall()
+    kecamatan = kon.execute(
+        "SELECT DISTINCT w.nama_kecamatan FROM residu r JOIN wilayah w "
+        "ON w.id = r.wilayah_id ORDER BY w.nama_kecamatan").fetchall()
+    desa = [dict(x) for x in kon.execute(
+        "SELECT DISTINCT w.id, w.nama_desa, w.nama_kecamatan FROM residu r "
+        "JOIN wilayah w ON w.id = r.wilayah_id "
+        "ORDER BY w.nama_kecamatan, w.nama_desa")]
+    kon.close()
+
+    kec_terpilih = (qp.get("kecamatan") or "").strip()
+    desa_tampil = [d for d in desa
+                   if not kec_terpilih or d["nama_kecamatan"] == kec_terpilih]
+    kueri = "&".join("%s=%s" % (k, quote(v, safe=""))
+                     for k, v in qp.multi_items() if v)
+
+    return templates.TemplateResponse(request, "residu_rekap.html", konteks(
+        request, ringkas=ringkas, lingkup=lingkup, per_petugas=per_petugas,
+        harian=harian, per_hari=per_hari, per_desa=per_desa, rincian=rincian,
+        semua_tahun=semua_tahun, kecamatan=kecamatan, desa=desa,
+        desa_tampil=desa_tampil, kec_terpilih=kec_terpilih,
+        daftar_petugas=daftar_petugas, qp=qp, kueri=kueri,
+        dari=s["dari"], sampai=s["sampai"], hasil=s["hasil"],
+        batas_awal=batas["awal"] or "", batas_akhir=batas["akhir"] or "",
+        teks_periode=laporan.teks_periode(s["dari"], s["sampai"])))
+
+
+JUDUL_REKAP_BLANKO_CSV = ["Tanggal", "Petugas", "Kecamatan", "Desa",
+                          "Blanko_Dicek", "Blanko_Ada", "Blanko_Tidak_Ada",
+                          "Tempat"]
+
+
+async def rekap_blanko_csv(request: Request):
+    """Unduh rekap harian pengecekan blanko per petugas dan desa."""
+    s = saring_blanko(request.query_params)
+    kon = db.sambung()
+    baris = rincian_blanko(kon, s)
+    kon.close()
+
+    keluar = [";".join(JUDUL_REKAP_BLANKO_CSV)]
+    for r in baris:
+        keluar.append(";".join(sel_csv(v) for v in (
+            r["tanggal"], r["nama"], r["kecamatan"], r["desa"],
+            r["dicek"], r["ada"] or 0, r["tidak_ada"] or 0, r["tempat"])))
+
+    isi_csv = "﻿" + "\r\n".join(keluar) + "\r\n"
+    berkas = "rekap_blanko_%s_sd_%s.csv" % (s["dari"] or "awal",
+                                            s["sampai"] or hari_ini())
+    return Response(isi_csv.encode("utf-8"), media_type="text/csv; charset=utf-8",
+                    headers={"Content-Disposition":
+                             'attachment; filename="%s"' % berkas})
+
+
 JUDUL_RESIDU_CSV = ["Tahun", "Nomor_Berkas", "Nomor_Hak", "Nomor_Hak_Asli",
                     "Kecamatan", "Desa", "Nama_Pemegang", "No_Seri_Blanko",
                     "Luas", "Sudah_Diserahkan", "Tipologi", "Keterangan",
@@ -1569,6 +1800,8 @@ rute = [
     Route("/impor/jalankan", jalankan_impor, methods=["POST"]),
     Route("/residu", residu),
     Route("/residu.csv", residu_csv),
+    Route("/residu/rekap", rekap_blanko),
+    Route("/residu/rekap.csv", rekap_blanko_csv),
     Route("/residu/centang", centang_blanko, methods=["POST"]),
     Route("/residu/{residu_id:int}/simpan", simpan_residu, methods=["POST"]),
     Route("/residu/tipologi", simpan_tipologi, methods=["POST"]),
@@ -1612,6 +1845,7 @@ def versi_gaya():
 
 
 templates.env.filters["angka"] = format_angka
+templates.env.filters["tanggal"] = laporan.tanggal_id
 templates.env.globals["persen"] = persen
 templates.env.globals["hari_ini"] = hari_ini
 templates.env.globals["versi_gaya"] = versi_gaya
