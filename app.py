@@ -1667,20 +1667,99 @@ async def ganti_sandi(request: Request):
                                       konteks(request, galat=None, sukses=True))
 
 
+# Kolom teks di seluruh basis data yang menyimpan NAMA petugas, bukan petugas.id.
+# Rekap per petugas dikelompokkan menurut nama ini, jadi mengganti nama di tabel
+# petugas tanpa mengikutkan kolom-kolom berikut akan memutus riwayat kerjanya:
+# hasil kerja lama terhitung sebagai orang lain yang tidak punya akun.
+KOLOM_NAMA_PETUGAS = [
+    ("penyimpanan", "diubah_oleh"),
+    ("pemeriksaan", "petugas"),
+    ("pemeriksaan", "verifikator"),
+    ("peminjaman", "petugas_pinjam"),
+    ("peminjaman", "petugas_kembali"),
+    ("penugasan", "petugas"),
+    ("rekap_kkp", "diubah_oleh"),
+    ("residu", "petugas"),
+    ("residu", "blanko_petugas"),
+    ("residu", "diubah_oleh"),
+    ("log_aktivitas", "petugas"),
+]
+
+# nama pengguna dipakai untuk masuk aplikasi; dibatasi supaya tidak ada spasi
+# atau huruf besar yang membuat orang gagal masuk karena salah ketik
+POLA_USERNAME = re.compile(r"[a-z0-9._-]{3,32}")
+
+
+def ganti_nama_petugas(kon, lama, baru):
+    """Ikutkan seluruh catatan kerja saat nama petugas diganti.
+
+    Dikembalikan jumlah baris yang ikut berubah per kolom, untuk dicatat di
+    log aktivitas dan dilaporkan ke Admin yang mengubahnya.
+    """
+    ikut = {}
+    for tabel, kolom in KOLOM_NAMA_PETUGAS:
+        cur = kon.execute("UPDATE %s SET %s = ? WHERE %s = ?" % (tabel, kolom, kolom),
+                          (baru, lama))
+        if cur.rowcount:
+            ikut["%s.%s" % (tabel, kolom)] = cur.rowcount
+    return ikut
+
+
+def hitung_riwayat_petugas(kon):
+    """Berapa catatan kerja yang menempel pada tiap nama petugas.
+
+    Dipakai di halaman Pengguna untuk memberi tahu Admin berapa banyak catatan
+    yang akan ikut berganti nama sebelum ia menyimpan perubahan.
+    """
+    bagian = " UNION ALL ".join(
+        "SELECT %s AS nama, COUNT(*) AS n FROM %s WHERE %s IS NOT NULL GROUP BY 1"
+        % (kolom, tabel, kolom) for tabel, kolom in KOLOM_NAMA_PETUGAS)
+    return {r["nama"]: r["n"] for r in kon.execute(
+        "SELECT nama, SUM(n) AS n FROM (%s) GROUP BY nama" % bagian)}
+
+
+def periksa_ubah_pengguna(kon, lama, nama, akun, peran):
+    """Alasan penolakan perubahan data pengguna, atau None bila boleh disimpan."""
+    if not nama:
+        return "Nama lengkap tidak boleh kosong."
+    if not akun and lama["username"]:
+        return ("Nama pengguna tidak boleh dikosongkan; akun %s memakainya untuk "
+                "masuk aplikasi." % lama["username"])
+    if akun and not POLA_USERNAME.fullmatch(akun):
+        return ("Nama pengguna hanya boleh berisi huruf kecil, angka, titik, garis "
+                "bawah, dan tanda hubung, sepanjang 3 sampai 32 huruf.")
+    if kon.execute("SELECT id FROM petugas WHERE nama = ? AND id <> ?",
+                   (nama, lama["id"])).fetchone():
+        return "Nama \"%s\" sudah dipakai akun lain." % nama
+    if akun and kon.execute("SELECT id FROM petugas WHERE username = ? AND id <> ?",
+                            (akun, lama["id"])).fetchone():
+        return "Nama pengguna \"%s\" sudah dipakai akun lain." % akun
+    # admin aktif terakhir tidak boleh kehilangan perannya lewat borang ini
+    if peran != "Admin" and lama["peran"] == "Admin" and lama["aktif"]:
+        sisa = kon.execute("SELECT COUNT(*) FROM petugas WHERE peran = 'Admin' "
+                           "AND aktif = 1 AND id <> ?", (lama["id"],)).fetchone()[0]
+        if not sisa:
+            return "Tidak bisa menurunkan peran admin aktif yang terakhir."
+    return None
+
+
 async def daftar_pengguna(request: Request):
     if not is_admin(request):
         return tolak(request)
+    qp = request.query_params
     kon = db.sambung()
     baris = kon.execute(
         "SELECT p.id, p.nama, p.username, p.peran, p.aktif, p.terakhir_masuk, "
-        "p.sandi_diubah_pada, (p.sandi IS NOT NULL) AS ada_sandi, "
+        "p.dibuat_pada, p.sandi_diubah_pada, (p.sandi IS NOT NULL) AS ada_sandi, "
         "(SELECT COUNT(*) FROM penugasan t WHERE t.petugas = p.nama) AS desa "
         "FROM petugas p ORDER BY p.peran, p.nama").fetchall()
+    riwayat = hitung_riwayat_petugas(kon)
     kon.close()
     return templates.TemplateResponse(request, "pengguna.html", konteks(
-        request, baris=baris, peran=auth.PERAN,
-        sandi_baru=request.query_params.get("sandi"),
-        untuk=request.query_params.get("untuk")))
+        request, baris=baris, peran=auth.PERAN, riwayat=riwayat,
+        sandi_baru=qp.get("sandi"), untuk=qp.get("untuk"),
+        galat=qp.get("galat"), tersimpan=qp.get("tersimpan"),
+        ikut_berubah=qp.get("riwayat"), buka=qp.get("ubah")))
 
 
 async def simpan_pengguna(request: Request):
@@ -1712,6 +1791,51 @@ async def simpan_pengguna(request: Request):
                              sekarang(), sekarang()))
             tulis_log(kon, p["nama"], "Tambah/ubah akun", None, akun)
             tujuan = "/pengguna?sandi=%s&untuk=%s" % (sandi, akun)
+
+    elif aksi == "ubah":
+        try:
+            pid = int(form.get("id") or 0)
+        except ValueError:
+            pid = 0
+        lama = kon.execute("SELECT id, nama, username, peran, aktif FROM petugas "
+                           "WHERE id = ?", (pid,)).fetchone()
+        if lama is None:
+            kon.close()
+            return tolak(request, "Akun yang hendak diubah tidak ditemukan.")
+
+        nama = isi(form, "nama")
+        akun = ((isi(form, "username") or "").lower()) or None
+        peran = form.get("peran") if form.get("peran") in auth.PERAN else lama["peran"]
+
+        galat = periksa_ubah_pengguna(kon, lama, nama, akun, peran)
+        if galat:
+            kon.close()
+            return RedirectResponse(
+                "/pengguna?galat=%s&ubah=%d" % (quote(galat, safe=""), pid),
+                status_code=303)
+
+        # nama diganti lebih dulu di seluruh catatan kerja, baru di tabel
+        # petugas, supaya tidak ada saat di mana namanya sudah baru di satu
+        # tempat tetapi masih lama di tempat lain
+        ikut = ganti_nama_petugas(kon, lama["nama"], nama) if nama != lama["nama"] else {}
+        kon.execute("UPDATE petugas SET nama = ?, username = ?, peran = ? WHERE id = ?",
+                    (nama, akun, peran, pid))
+
+        rincian = "%s -> %s" % (lama["nama"], nama)
+        if akun != lama["username"]:
+            rincian += "; nama pengguna %s -> %s" % (lama["username"] or "-", akun or "-")
+        if peran != lama["peran"]:
+            rincian += "; peran %s -> %s" % (lama["peran"], peran)
+        if ikut:
+            rincian += "; riwayat ikut diganti: " + ", ".join(
+                "%s %d" % (k, v) for k, v in sorted(ikut.items()))
+        # bila Admin mengubah namanya sendiri, log ditulis atas nama barunya
+        # supaya barisnya tidak berdiri sendiri di luar riwayat orang itu
+        tulis_log(kon, nama if p["id"] == pid else p["nama"], "Ubah data pengguna",
+                  None, rincian)
+        tujuan = "/pengguna?tersimpan=" + quote(nama, safe="")
+        if ikut:
+            tujuan += "&riwayat=%d" % sum(ikut.values())
 
     elif aksi == "sandi":
         akun = isi(form, "username")

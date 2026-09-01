@@ -2,6 +2,11 @@
 {% block judul %}Pengguna — Aplikasi Warkah{% endblock %}
 {% block isi %}
 
+{# Jinja memuat ulang berkas ini begitu berubah, sedangkan app.py baru terpakai
+   sesudah aplikasi dijalankan ulang. Nilai bawaan di bawah menjaga halaman tetap
+   terbuka pada sela waktu itu, alih-alih berhenti dengan galat 500. #}
+{% set riwayat = riwayat | default({}, true) %}
+
 <h1>Pengguna</h1>
 <p class="jelas">Kelola akun petugas dan admin. Hanya Admin yang bisa membuka halaman ini.</p>
 
@@ -10,6 +15,19 @@
     Sandi baru untuk <strong>{{ untuk }}</strong>:
     <span class="mono" style="font-size:16px; letter-spacing:1px">{{ sandi_baru }}</span>
     — catat dan sampaikan sekarang, sandi ini tidak ditampilkan lagi.
+  </div>
+{% endif %}
+
+{% if galat %}
+  <div class="pesan awas">{{ galat }}</div>
+{% endif %}
+{% if tersimpan %}
+  <div class="pesan sukses">
+    Data <strong>{{ tersimpan }}</strong> tersimpan.
+    {% if ikut_berubah %}
+      {{ ikut_berubah | angka }} catatan kerja atas nama lamanya ikut diganti,
+      sehingga rekap dan riwayatnya tetap menyatu.
+    {% endif %}
   </div>
 {% endif %}
 
@@ -85,6 +103,8 @@
           <td class="angka">{{ r.desa | angka }}</td>
           <td class="kecil redup">{{ r.terakhir_masuk or 'belum pernah' }}</td>
           <td class="nowrap">
+            <button type="button" class="tombol kecil kedua buka-ubah"
+                    data-target="ubah-{{ r.id }}">Ubah data</button>
             {% if r.username %}
               <form method="post" action="/pengguna/simpan" style="display:inline">
                 <input type="hidden" name="aksi" value="sandi">
@@ -99,8 +119,81 @@
                 </button>
               </form>
             {% else %}
-              <span class="kecil redup">buat akun lewat borang di atas dengan nama yang sama</span>
+              <span class="kecil redup">belum bisa masuk aplikasi; isikan nama pengguna lewat Ubah data</span>
             {% endif %}
+          </td>
+        </tr>
+
+        {# borang ubah data: nama lengkap, nama pengguna, dan peran sekaligus #}
+        <tr class="baris-ubah" id="ubah-{{ r.id }}" {{ 'hidden' if buka != r.id | string }}>
+          <td colspan="7">
+            <form method="post" action="/pengguna/simpan">
+              <input type="hidden" name="aksi" value="ubah">
+              <input type="hidden" name="id" value="{{ r.id }}">
+              <div class="baris-borang">
+                <div class="bidang-isian">
+                  <label for="nama-{{ r.id }}">Nama lengkap</label>
+                  <input type="text" id="nama-{{ r.id }}" name="nama" required
+                         value="{{ r.nama }}" maxlength="60">
+                </div>
+                <div class="bidang-isian">
+                  <label for="akun-{{ r.id }}">Nama pengguna</label>
+                  <input type="text" id="akun-{{ r.id }}" name="username" class="mono"
+                         value="{{ r.username or '' }}" maxlength="32"
+                         pattern="[a-z0-9._-]{3,32}" placeholder="huruf kecil, tanpa spasi"
+                         title="huruf kecil, angka, titik, garis bawah, atau tanda hubung; 3-32 huruf">
+                </div>
+                <div class="bidang-isian">
+                  <label for="peran-{{ r.id }}">Peran</label>
+                  <select id="peran-{{ r.id }}" name="peran">
+                    {% for x in peran %}
+                      <option value="{{ x }}" {{ 'selected' if r.peran == x }}>{{ x }}</option>
+                    {% endfor %}
+                  </select>
+                </div>
+                <div class="bidang-isian">
+                  <label>&nbsp;</label>
+                  <div style="display:flex; gap:6px">
+                    <button type="submit" class="hijau">Simpan</button>
+                    <button type="button" class="kedua tutup-ubah"
+                            data-target="ubah-{{ r.id }}">Batal</button>
+                  </div>
+                </div>
+              </div>
+
+              <dl class="rincian kecil">
+                <dt>Riwayat kerja</dt>
+                <dd>
+                  {% set n = riwayat.get(r.nama, 0) %}
+                  {% if n %}
+                    <strong>{{ n | angka }} catatan</strong> tercatat atas nama
+                    &ldquo;{{ r.nama }}&rdquo; di pemeriksaan, penugasan, sirkulasi,
+                    residu, dan log. Semuanya <strong>ikut berganti</strong> bila nama
+                    lengkapnya diubah, sehingga rekap per petugas tidak terpecah dua.
+                  {% else %}
+                    Belum ada catatan kerja atas nama ini.
+                  {% endif %}
+                </dd>
+                <dt>Sandi</dt>
+                <dd>
+                  {% if r.ada_sandi %}
+                    Sudah diatur{{ ', terakhir diubah ' ~ r.sandi_diubah_pada if r.sandi_diubah_pada }}.
+                    Sandi tidak bisa dibaca atau diketik di sini — pakai
+                    <em>Atur ulang sandi</em> untuk membuat yang baru.
+                  {% else %}
+                    Belum punya sandi, jadi akunnya belum bisa dipakai masuk.
+                  {% endif %}
+                </dd>
+                <dt>Dibuat</dt>
+                <dd>{{ r.dibuat_pada or '—' }}</dd>
+              </dl>
+
+              <p class="kecil redup" style="margin:10px 0 0">
+                Mengganti nama pengguna membuat orangnya masuk memakai nama baru itu;
+                sandinya tidak berubah dan sesi yang sedang berjalan tidak terputus.
+                Status aktif/nonaktif tetap diatur lewat tombol di kolom Tindakan.
+              </p>
+            </form>
           </td>
         </tr>
       {% endfor %}
@@ -109,10 +202,37 @@
   </div>
 </div>
 
+<script>
+document.querySelectorAll('.buka-ubah').forEach(function (t) {
+  t.addEventListener('click', function () {
+    var baris = document.getElementById(t.dataset.target);
+    baris.hidden = !baris.hidden;
+    t.textContent = baris.hidden ? 'Ubah data' : 'Tutup';
+    if (!baris.hidden) { baris.querySelector('input[name=nama]').focus(); }
+  });
+});
+document.querySelectorAll('.tutup-ubah').forEach(function (t) {
+  t.addEventListener('click', function () {
+    var baris = document.getElementById(t.dataset.target);
+    baris.hidden = true;
+    var pembuka = document.querySelector('.buka-ubah[data-target="' + t.dataset.target + '"]');
+    if (pembuka) { pembuka.textContent = 'Ubah data'; }
+  });
+});
+{# baris yang dibuka karena isiannya ditolak: samakan tulisan tombolnya #}
+document.querySelectorAll('.baris-ubah:not([hidden])').forEach(function (baris) {
+  var pembuka = document.querySelector('.buka-ubah[data-target="' + baris.id + '"]');
+  if (pembuka) { pembuka.textContent = 'Tutup'; }
+  baris.scrollIntoView({ block: 'center' });
+});
+</script>
+
 <p class="kecil redup">
   Akun yang dinonaktifkan tidak bisa masuk, tetapi catatan pemeriksaan dan penugasan
   atas namanya tetap tersimpan. Admin aktif terakhir tidak bisa dinonaktifkan atau
-  diturunkan perannya.
+  diturunkan perannya. Nama lengkap dipakai sebagai penanda di seluruh catatan kerja,
+  jadi mengubahnya lewat <em>Ubah data</em> sekaligus memperbarui catatan lama supaya
+  rekap per petugas tidak terpecah menjadi dua orang.
 </p>
 
 {% endblock %}

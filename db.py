@@ -310,8 +310,13 @@ def siapkan():
     kon.executescript(SKEMA)
     migrasi(kon)
     kon.executemany("INSERT OR IGNORE INTO jenis_hak (kode, nama) VALUES (?, ?)", JENIS_HAK)
-    kon.executemany("INSERT OR IGNORE INTO petugas (nama) VALUES (?)",
-                    [(n,) for n in PETUGAS_AWAL])
+    # Nama petugas awal hanya untuk basis data yang benar-benar masih kosong.
+    # Kalau tetap dimasukkan setiap kali siapkan() jalan -- dan siapkan() jalan
+    # di tiap deploy -- nama yang sudah diperbaiki lewat menu Pengguna akan
+    # muncul lagi sebagai akun tanpa sandi sesudah rilis berikutnya.
+    if kon.execute("SELECT COUNT(*) FROM petugas").fetchone()[0] == 0:
+        kon.executemany("INSERT OR IGNORE INTO petugas (nama) VALUES (?)",
+                        [(n,) for n in PETUGAS_AWAL])
     kon.executemany("INSERT OR IGNORE INTO tipologi (kode, kelompok, urut) "
                     "VALUES (?,?,?)", TIPOLOGI)
     kon.commit()
