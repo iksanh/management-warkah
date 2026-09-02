@@ -100,13 +100,15 @@ SELECT b.id, b.nomor_hak, b.surat_ukur, b.nib, b.luas, b.produk, b.kw,
        w.nama_desa, w.nama_kecamatan, w.kode_desa, w.kelompok,
        s.ruang, s.lemari, s.rak, s.box,
        p.bt_ada, p.su_ada, p.status_identifikasi, p.petugas AS petugas_periksa,
-       pj.id AS pinjam_id, pj.peminjam, pj.tanggal_pinjam, pj.jatuh_tempo
+       pj.id AS pinjam_id, pj.peminjam, pj.tanggal_pinjam, pj.jatuh_tempo,
+       rs.id AS residu_id, rs.sumber AS residu_sumber, rs.status AS residu_status
 FROM bidang b
 JOIN wilayah w      ON w.id = b.wilayah_id
 JOIN jenis_hak j    ON j.kode = b.jenis_hak
 LEFT JOIN penyimpanan s ON s.bidang_id = b.id
 LEFT JOIN pemeriksaan p ON p.bidang_id = b.id
 LEFT JOIN peminjaman pj ON pj.bidang_id = b.id AND pj.tanggal_kembali IS NULL
+LEFT JOIN residu rs     ON rs.bidang_id = b.id
 """
 
 
@@ -136,6 +138,11 @@ def bangun_filter(qp):
     if pg:
         syarat.append("p.petugas = ?")
         par.append(pg)
+    rd = (qp.get("residu") or "").strip()
+    if rd == "ada":
+        syarat.append("rs.id IS NOT NULL")
+    elif rd == "belum":
+        syarat.append("rs.id IS NULL")
     st = (qp.get("periksa") or "").strip()
     if st == "belum":
         syarat.append("(p.status_identifikasi IS NULL OR p.status_identifikasi = 'Belum Diperiksa')")
@@ -182,6 +189,11 @@ async def beranda(request: Request):
         aktivitas=aktivitas, top_kec=top_kec))
 
 
+# nama parameter yang hanya dipakai memunculkan pesan hasil simpan; tidak boleh
+# ikut menempel di tautan halaman berikutnya atau di alamat kembali
+KABAR_KATALOG = {"tersimpan", "res_tandai", "res_batal", "res_tetap"}
+
+
 async def katalog(request: Request):
     qp = request.query_params
     try:
@@ -194,7 +206,8 @@ async def katalog(request: Request):
     jumlah = kon.execute(
         "SELECT COUNT(*) FROM bidang b JOIN wilayah w ON w.id=b.wilayah_id "
         "LEFT JOIN pemeriksaan p ON p.bidang_id=b.id "
-        "LEFT JOIN peminjaman pj ON pj.bidang_id=b.id AND pj.tanggal_kembali IS NULL"
+        "LEFT JOIN peminjaman pj ON pj.bidang_id=b.id AND pj.tanggal_kembali IS NULL "
+        "LEFT JOIN residu rs ON rs.bidang_id=b.id"
         + where, par).fetchone()[0]
     baris = kon.execute(
         SQL_BIDANG + where + " ORDER BY w.nama_kecamatan, w.nama_desa, b.nomor_hak "
@@ -222,9 +235,9 @@ async def katalog(request: Request):
         "SELECT nama FROM petugas WHERE aktif = 1 ORDER BY nama").fetchall()
     kon2.close()
 
-    dasar = {k: v for k, v in qp.items() if k != "hal" and v}
+    dasar = {k: v for k, v in qp.items() if k not in KABAR_KATALOG | {"hal"} and v}
     # alamat kembali setelah simpan centang: saringan yang sama, tanpa pesan lama
-    sisa = [(k, v) for k, v in qp.multi_items() if k != "tersimpan" and v]
+    sisa = [(k, v) for k, v in qp.multi_items() if k not in KABAR_KATALOG and v]
     kembali_ke = "/katalog" + (("?" + "&".join(
         "%s=%s" % (k, quote(v, safe="")) for k, v in sisa)) if sisa else "")
 
@@ -238,18 +251,98 @@ async def katalog(request: Request):
         tersimpan=request.query_params.get("tersimpan")))
 
 
+# Nomor hak yang ditandai residu langsung dari halaman Katalog. Sebagian residu
+# PTSL tidak ikut tertulis di berkas RESIDU yang diimpor, padahal bidangnya ada
+# di katalog; Admin menandainya sendiri lewat kolom centang Residu. Sumbernya
+# ditulis khusus supaya baris seperti ini bisa dibedakan dari hasil impor — dan
+# supaya hanya baris ini yang boleh dibatalkan lagi dari katalog.
+SUMBER_KATALOG = "Ditandai dari katalog"
+
+
+def kunci_residu(kon, b):
+    """Kunci baris residu untuk satu bidang.
+
+    Nomor hak berformat 14 digit dipakai apa adanya, sama seperti impor, supaya
+    impor RESIDU PTSL berikutnya memperbarui baris ini dan tidak menambah baris
+    kembar. Bila bentuknya lain — atau kuncinya sudah dipakai baris lain —
+    dipakai kunci tersendiri yang pasti tidak bentrok.
+    """
+    nomor = (b["nomor_hak"] or "").strip()
+    if re.fullmatch(r"\d{2}(\.\d{2}){3}\.\d\.\d{5}", nomor) and not kon.execute(
+            "SELECT 1 FROM residu WHERE kunci = ?", (nomor,)).fetchone():
+        return nomor
+    return "katalog|%d" % b["id"]
+
+
+def tandai_residu(kon, bid, siapa):
+    """Catat satu bidang sebagai residu; True bila ada yang berubah."""
+    b = kon.execute(
+        "SELECT b.id, b.nomor_hak, b.jenis_hak, b.luas, b.pemilik_akhir, "
+        "       b.wilayah_id, j.nama AS nama_hak, w.nama_desa, w.nama_kecamatan "
+        "FROM bidang b JOIN wilayah w ON w.id = b.wilayah_id "
+        "JOIN jenis_hak j ON j.kode = b.jenis_hak WHERE b.id = ?", (bid,)).fetchone()
+    if b is None or kon.execute(
+            "SELECT 1 FROM residu WHERE bidang_id = ?", (bid,)).fetchone():
+        return False
+
+    # baris residu hasil impor yang nomor haknya sama tetapi belum tertaut ke
+    # bidang cukup ditautkan saja — jangan dibuatkan baris baru yang kembar
+    lepas = kon.execute(
+        "SELECT id FROM residu WHERE bidang_id IS NULL AND nomor_hak = ? "
+        "ORDER BY id", (b["nomor_hak"],)).fetchone()
+    if lepas:
+        kon.execute(
+            "UPDATE residu SET bidang_id = ?, wilayah_id = COALESCE(wilayah_id, ?), "
+            "diubah_oleh = ?, diubah_pada = ? WHERE id = ?",
+            (bid, b["wilayah_id"], siapa or None, sekarang(), lepas["id"]))
+        return True
+
+    kon.execute(
+        "INSERT INTO residu (kunci, bidang_id, wilayah_id, nomor_hak, nomor_hak_asli, "
+        "jenis_hak, jenis_hak_teks, desa_teks, kecamatan_teks, nama_pemegang, luas, "
+        "sudah_diserahkan, sumber, diimpor_pada, diubah_oleh, diubah_pada) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?,0,?,?,?,?)",
+        (kunci_residu(kon, b), bid, b["wilayah_id"], b["nomor_hak"], b["nomor_hak"],
+         b["jenis_hak"], b["nama_hak"], b["nama_desa"], b["nama_kecamatan"],
+         b["pemilik_akhir"], b["luas"], SUMBER_KATALOG, sekarang(),
+         siapa or None, sekarang()))
+    return True
+
+
+def batal_residu(kon, bid):
+    """Batalkan tanda residu satu bidang.
+
+    Kembaliannya: "hapus" bila barisnya dibuang, "impor" bila baris residunya
+    berasal dari berkas impor sehingga tidak boleh dihapus dari katalog, atau
+    "" bila memang tidak ada apa-apa yang perlu diubah.
+    """
+    r = kon.execute("SELECT id, sumber FROM residu WHERE bidang_id = ?",
+                    (bid,)).fetchone()
+    if r is None:
+        return ""
+    if r["sumber"] != SUMBER_KATALOG:
+        return "impor"
+    kon.execute("DELETE FROM residu WHERE id = ?", (r["id"],))
+    return "hapus"
+
+
 async def simpan_centang(request: Request):
     """Simpan centang massal dari halaman katalog.
 
     Hanya baris yang benar-benar diubah petugas yang dikirim (ditandai di sisi
     peramban), sehingga baris lain tidak ikut tertimpa. Kolom pemeriksaan lain
-    — kondisi, warkah, verifikator — tidak disentuh sama sekali.
+    — kondisi, warkah, verifikator — tidak disentuh sama sekali. Centang Residu
+    dikirim terpisah dari centang BT/SU supaya menandai residu tidak ikut
+    menuliskan hasil pemeriksaan yang belum tentu sudah dikerjakan.
     """
     form = await request.form()
     siapa = petugas_aktif(request)
 
     diubah = [i for i in form.getlist("ubah") if i.isdigit()]
-    if not diubah:
+    # kolom Residu hanya tampil untuk Admin; kiriman dari peran lain diabaikan
+    ubah_residu = ([i for i in form.getlist("ubah_residu") if i.isdigit()]
+                   if is_admin(request) else [])
+    if not diubah and not ubah_residu:
         return RedirectResponse(form.get("kembali_ke") or "/katalog", status_code=303)
 
     # petugas hanya boleh mencatat atas namanya sendiri; admin bebas memilih
@@ -278,13 +371,36 @@ async def simpan_centang(request: Request):
             (int(bid), bt, su, status, petugas_pilihan, tanggal, tempat, sekarang()))
         n += 1
 
-    tulis_log(kon, siapa, "Centang massal katalog", None, "%d bidang" % n)
+    if n:
+        tulis_log(kon, siapa, "Centang massal katalog", None, "%d bidang" % n)
+
+    ditandai = dibatalkan = tetap = 0
+    for bid in ubah_residu:
+        if form.get("residu_" + bid) == "1":
+            ditandai += 1 if tandai_residu(kon, int(bid), siapa) else 0
+        else:
+            hasil = batal_residu(kon, int(bid))
+            dibatalkan += 1 if hasil == "hapus" else 0
+            tetap += 1 if hasil == "impor" else 0
+    if ditandai or dibatalkan:
+        tulis_log(kon, siapa, "Tandai residu dari katalog", None,
+                  "%d ditandai, %d dibatalkan" % (ditandai, dibatalkan))
+
     kon.commit()
     kon.close()
 
     tujuan = form.get("kembali_ke") or "/katalog"
     pisah = "&" if "?" in tujuan else "?"
-    return RedirectResponse("%s%stersimpan=%d" % (tujuan, pisah, n), status_code=303)
+    kabar = []
+    if n:
+        kabar.append("tersimpan=%d" % n)
+    for nama, jml in (("res_tandai", ditandai), ("res_batal", dibatalkan),
+                      ("res_tetap", tetap)):
+        if jml:
+            kabar.append("%s=%d" % (nama, jml))
+    if not kabar:
+        return RedirectResponse(tujuan, status_code=303)
+    return RedirectResponse(tujuan + pisah + "&".join(kabar), status_code=303)
 
 
 async def detail(request: Request):

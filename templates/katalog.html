@@ -8,6 +8,21 @@
 {% if tersimpan %}
   <div class="pesan sukses">{{ tersimpan }} bidang tersimpan.</div>
 {% endif %}
+{% if qp.get('res_tandai') %}
+  <div class="pesan sukses">
+    {{ qp.get('res_tandai') }} nomor hak ditandai sebagai residu — sekarang ikut tampil di halaman
+    <a href="/residu">Residu</a>.
+  </div>
+{% endif %}
+{% if qp.get('res_batal') %}
+  <div class="pesan sukses">Tanda residu dibatalkan untuk {{ qp.get('res_batal') }} nomor hak.</div>
+{% endif %}
+{% if qp.get('res_tetap') %}
+  <div class="pesan awas">
+    {{ qp.get('res_tetap') }} nomor hak tetap residu: datanya berasal dari berkas RESIDU PTSL
+    yang diimpor, bukan ditandai dari katalog, jadi tidak dibatalkan dari sini.
+  </div>
+{% endif %}
 
 <div class="kartu">
   <form class="saring" method="get" action="/katalog">
@@ -71,6 +86,14 @@
         {% for s in pilihan.status_identifikasi %}
           <option value="{{ s }}" {{ 'selected' if qp.get('periksa') == s }}>{{ s }}</option>
         {% endfor %}
+      </select>
+    </div>
+    <div class="bidang-isian">
+      <label for="residu">Residu</label>
+      <select id="residu" name="residu">
+        <option value="">Semua</option>
+        <option value="ada" {{ 'selected' if qp.get('residu') == 'ada' }}>Tercatat residu</option>
+        <option value="belum" {{ 'selected' if qp.get('residu') == 'belum' }}>Bukan residu</option>
       </select>
     </div>
     <div class="bidang-isian">
@@ -170,6 +193,11 @@
     Centang <strong>BT</strong> bila buku tanahnya ada dan <strong>SU</strong> bila surat
     ukurnya ada, lalu Simpan. Hanya baris yang Anda ubah yang disimpan.
     Status <em>(otomatis)</em> = Lengkap bila keduanya tercentang, selain itu Tidak Lengkap.
+    {% if admin %}
+      Kolom <strong>Residu</strong> khusus Admin: centang bila nomor hak itu ternyata masih
+      residu tetapi belum tercatat di berkas RESIDU PTSL. Barisnya langsung muncul di halaman
+      Residu dan bisa dilengkapi di sana.
+    {% endif %}
   </div>
 </div>
 
@@ -195,6 +223,12 @@
           <th>Pemilik Terakhir</th>
           <th class="kol-opsional">Lokasi Simpan</th>
           <th class="kol-opsional">Status</th>
+          <th class="tengah kol-residu"
+              title="{{ 'Centang bila nomor hak ini masih residu' if admin else 'Tercatat sebagai residu PTSL' }}">
+            {% if admin %}
+              <label class="kepala-centang"><input type="checkbox" id="semua-residu"> Residu</label>
+            {% else %}Residu{% endif %}
+          </th>
         </tr>
       </thead>
       <tbody>
@@ -231,9 +265,22 @@
               <span class="tanda biru">{{ r.status_identifikasi }}</span>
             {% endif %}
           </td>
+          <td class="tengah kol-residu">
+            {% if admin %}
+              <input type="checkbox" class="c-residu" data-id="{{ r.id }}"
+                     data-sumber="{{ r.residu_sumber or '' }}"
+                     title="{{ 'Residu dari berkas RESIDU PTSL — tidak bisa dibatalkan dari katalog' if r.residu_id and r.residu_sumber != 'Ditandai dari katalog' else 'Tandai nomor hak ini sebagai residu' }}"
+                     {{ 'checked' if r.residu_id }}
+                     {{ 'disabled' if r.residu_id and r.residu_sumber != 'Ditandai dari katalog' }}>
+            {% elif r.residu_id %}
+              <span class="tanda oranye">Residu</span>
+            {% else %}
+              <span class="redup">—</span>
+            {% endif %}
+          </td>
         </tr>
       {% else %}
-        <tr><td colspan="13" class="kosong">Tidak ada data yang cocok dengan pencarian.</td></tr>
+        <tr><td colspan="14" class="kosong">Tidak ada data yang cocok dengan pencarian.</td></tr>
       {% endfor %}
       </tbody>
     </table>
@@ -265,58 +312,82 @@
   var wadah = document.getElementById('wadah-ubah');
   var tombol = document.getElementById('tombol-simpan');
   var jml = document.getElementById('jml-ubah');
+  // centang BT/SU dan centang Residu dicatat terpisah: menandai residu tidak
+  // boleh ikut menuliskan hasil pemeriksaan yang belum tentu sudah dikerjakan
   var diubah = new Set();
+  var diubahResidu = new Set();
 
-  function tandai(id) {
-    diubah.add(String(id));
+  function hitung() {
+    var semuaBaris = new Set();
+    diubah.forEach(function (id) { semuaBaris.add(id); });
+    diubahResidu.forEach(function (id) { semuaBaris.add(id); });
+    jml.textContent = semuaBaris.size;
+    tombol.disabled = semuaBaris.size === 0;
+  }
+
+  function tandai(id, daftar) {
+    daftar.add(String(id));
     var tr = borang.querySelector('tr[data-id="' + id + '"]');
     if (tr) tr.classList.add('baris-diubah');
-    jml.textContent = diubah.size;
-    tombol.disabled = diubah.size === 0;
+    hitung();
   }
 
   borang.addEventListener('change', function (e) {
     var el = e.target;
     if (el.classList.contains('c-bt') || el.classList.contains('c-su')) {
-      tandai(el.dataset.id);
+      tandai(el.dataset.id, diubah);
+    } else if (el.classList.contains('c-residu')) {
+      tandai(el.dataset.id, diubahResidu);
     }
   });
 
   // centang seluruh kolom pada halaman yang sedang tampil
-  function semua(idKepala, kelas) {
-    document.getElementById(idKepala).addEventListener('change', function () {
+  function semua(idKepala, kelas, daftar) {
+    var kepala = document.getElementById(idKepala);
+    if (!kepala) { return; }          // kolom Residu hanya ada di layar Admin
+    kepala.addEventListener('change', function () {
       var nyala = this.checked;
       borang.querySelectorAll('.' + kelas).forEach(function (c) {
+        if (c.disabled) { return; }   // residu dari berkas impor tidak diutak-atik
         if (c.checked !== nyala) { c.checked = nyala; }
-        tandai(c.dataset.id);
+        tandai(c.dataset.id, daftar);
       });
     });
   }
-  semua('semua-bt', 'c-bt');
-  semua('semua-su', 'c-su');
+  semua('semua-bt', 'c-bt', diubah);
+  semua('semua-su', 'c-su', diubah);
+  semua('semua-residu', 'c-residu', diubahResidu);
 
   // hanya baris yang diubah yang ikut terkirim
   borang.addEventListener('submit', function () {
     wadah.innerHTML = '';
+    var tambah = function (nama, nilai) {
+      var i = document.createElement('input');
+      i.type = 'hidden'; i.name = nama; i.value = nilai;
+      wadah.appendChild(i);
+    };
     diubah.forEach(function (id) {
       var bt = borang.querySelector('.c-bt[data-id="' + id + '"]');
       var su = borang.querySelector('.c-su[data-id="' + id + '"]');
-      var tambah = function (nama, nilai) {
-        var i = document.createElement('input');
-        i.type = 'hidden'; i.name = nama; i.value = nilai;
-        wadah.appendChild(i);
-      };
       tambah('ubah', id);
       if (bt && bt.checked) tambah('bt_' + id, '1');
       if (su && su.checked) tambah('su_' + id, '1');
+    });
+    diubahResidu.forEach(function (id) {
+      var rs = borang.querySelector('.c-residu[data-id="' + id + '"]');
+      tambah('ubah_residu', id);
+      if (rs && rs.checked) tambah('residu_' + id, '1');
     });
   });
 
   // cegah kehilangan centang yang belum disimpan
   window.addEventListener('beforeunload', function (e) {
-    if (diubah.size) { e.preventDefault(); e.returnValue = ''; }
+    if (diubah.size || diubahResidu.size) { e.preventDefault(); e.returnValue = ''; }
   });
-  borang.addEventListener('submit', function () { diubah.clear(); });
+  borang.addEventListener('submit', function () {
+    diubah.clear();
+    diubahResidu.clear();
+  });
 })();
 </script>
 

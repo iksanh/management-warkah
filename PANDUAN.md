@@ -65,7 +65,7 @@ namanya tetap tersimpan.
 | Menu | Kegunaan |
 |---|---|
 | **Beranda** | Ringkasan koleksi, kualitas data (KW), peminjaman lewat jatuh tempo, aktivitas terakhir |
-| **Katalog** | Cari bidang dan lihat lokasi fisik warkahnya. Saring per kecamatan, desa, jenis hak, KW, ketersediaan, status pemeriksaan, dan petugas pemeriksa |
+| **Katalog** | Cari bidang dan lihat lokasi fisik warkahnya. Saring per kecamatan, desa, jenis hak, KW, ketersediaan, status pemeriksaan, petugas pemeriksa, dan status residu |
 | **Sirkulasi** | Daftar warkah yang sedang keluar, yang lewat jatuh tempo, dan riwayat pengembalian |
 | **Monitoring** | Rekap capaian per kecamatan dan per petugas; penugasan desa ke petugas |
 | **Rekap** | Jumlah bidang terinput per desa per kecamatan menurut kode, lengkap dengan pecahan KW, untuk dicocokkan dengan tarikan KKP |
@@ -230,6 +230,35 @@ Aturan yang berlaku:
 - Petugas biasa selalu tercatat atas namanya sendiri; hanya Admin yang bisa memilih nama
   petugas lain.
 
+### Menandai residu dari katalog *(Admin)*
+
+Sebagian sertipikat yang sebenarnya masih residu tidak ikut tertulis di berkas
+**RESIDU PTSL** yang diimpor, padahal bidangnya ada di **Katalog**. Nomor hak seperti itu
+ditandai sendiri oleh Admin lewat kolom **Residu** di ujung kanan tabel katalog:
+
+1. Cari nomor haknya di Katalog (boleh disaring per desa lebih dulu).
+2. Centang kolom **Residu** pada barisnya. Kotak di kepala kolom menandai seluruh baris
+   pada halaman itu sekaligus.
+3. Klik **Simpan centang** — tombol yang sama dengan centang BT/SU.
+
+Sesudah tersimpan, nomor hak itu langsung muncul di menu **Residu** dan bisa dilengkapi
+di sana seperti baris residu lainnya: tipologi, status, tindak lanjut, cek blanko, sampai
+tanggal serah. Keterangan desa, kecamatan, pemegang hak, dan luasnya diambil dari data
+bidang di katalog; tahun anggaran dan nomor berkas dibiarkan kosong karena memang belum
+ada berkasnya.
+
+Aturan yang berlaku:
+
+- Kolom **Residu** hanya bisa dicentang Admin. Petugas tetap melihat kolomnya, tetapi
+  berupa penanda baca saja.
+- Menghapus centang membatalkan tanda residu — barisnya dibuang dari menu Residu.
+- Baris residu yang berasal dari **impor berkas RESIDU PTSL** ikut tercentang, tetapi
+  kotaknya terkunci: data hasil impor tidak boleh terhapus dari katalog.
+- Bila nomor haknya sudah ada di daftar residu tetapi belum tertaut ke data bidang,
+  centang ini menautkannya — tidak membuat baris kembar.
+- Saringan **Residu** di bilah pencarian memisahkan bidang yang sudah tercatat residu
+  dari yang bukan.
+
 ## Membuka dari ponsel
 
 Seluruh halaman menyesuaikan lebar layar — cukup buka `http://<ip-server>:8000`
@@ -241,8 +270,8 @@ memverifikasi buku tanah dan surat ukur:
 
 | Layar | Yang tampil di tabel katalog |
 |---|---|
-| Ponsel (≤600 px) | Centang BT & SU, lalu **Nomor Hak**, **Desa**, **SU**, **Pemilik** bertumpuk ke bawah |
-| Tablet (≤992 px) | Enam kolom yang sama, berdampingan |
+| Ponsel (≤600 px) | Centang BT & SU, lalu **Nomor Hak**, **Desa**, **SU**, **Pemilik**, **Residu** bertumpuk ke bawah |
+| Tablet (≤992 px) | Kolom yang sama, berdampingan |
 | Laptop / PC | Seluruh kolom seperti biasa |
 
 Kolom Jenis Hak, Kecamatan, NIB, Luas, KW, Lokasi Simpan, dan Status disembunyikan di

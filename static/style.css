@@ -213,6 +213,15 @@ tbody tr:hover td.kol-centang { background: #eaf3fa; }
 th.kol-centang + th:not(.kol-centang),
 td.kol-centang + td:not(.kol-centang) { border-left: 2px solid #bcd5e8; }
 
+/* KOLOM RESIDU — penanda milik Admin, diletakkan paling kanan supaya urutan
+   kolom lama tidak bergeser. Warnanya oranye muda, bukan biru seperti zona
+   BT/SU, karena isinya bukan hasil pemeriksaan melainkan penetapan status. */
+td.kol-residu { background: #fdf6ec; border-left: 2px solid #f0d9b5; }
+th.kol-residu { background: #f7e6cb; border-left: 2px solid #f0d9b5; }
+tbody tr:hover td.kol-residu { background: #fbeed8; }
+td.kol-residu input[type=checkbox] { accent-color: var(--oranye); }
+td.kol-residu input[type=checkbox]:disabled { cursor: not-allowed; opacity: .55; }
+
 tbody tr.baris-diubah { background: #fff9e3; }
 tbody tr.baris-diubah:hover { background: #fff4cf; }
 tbody tr.baris-diubah td.kol-centang { background: #fdf3d0; }
@@ -463,10 +472,11 @@ input.isian-catatan { width: 160px; padding: 4px 6px; font-size: 12px; }
   #borang-centang th { white-space: normal; overflow-wrap: anywhere; }
   #borang-centang th:nth-child(1),
   #borang-centang th:nth-child(2)  { width: 7%; }
-  #borang-centang th:nth-child(3)  { width: 36%; }  /* nomor hak, harus utuh */
-  #borang-centang th:nth-child(5)  { width: 14%; }  /* desa */
-  #borang-centang th:nth-child(7)  { width: 21%; }  /* surat ukur */
-  #borang-centang th:nth-child(11) { width: 15%; }  /* pemilik */
+  #borang-centang th:nth-child(3)  { width: 33%; }  /* nomor hak, harus utuh */
+  #borang-centang th:nth-child(5)  { width: 13%; }  /* desa */
+  #borang-centang th:nth-child(7)  { width: 19%; }  /* surat ukur */
+  #borang-centang th:nth-child(11) { width: 13%; }  /* pemilik */
+  #borang-centang th:nth-child(14) { width: 8%; }   /* residu */
   #borang-centang tbody td:nth-child(3),
   #borang-centang tbody td:nth-child(5),
   #borang-centang tbody td:nth-child(7),
@@ -494,7 +504,8 @@ input.isian-catatan { width: 160px; padding: 4px 6px; font-size: 12px; }
       "bt su nomor"
       "bt su desa"
       "bt su surat"
-      "bt su pemilik";
+      "bt su pemilik"
+      "bt su residu";
     align-items: start;
     border-bottom: 1px solid var(--garis);
     padding: 8px 2px;
@@ -553,10 +564,20 @@ input.isian-catatan { width: 160px; padding: 4px 6px; font-size: 12px; }
   #borang-centang tbody td:nth-child(5)  { grid-area: desa; }
   #borang-centang tbody td:nth-child(7)  { grid-area: surat; font-size: 11px; }
   #borang-centang tbody td:nth-child(11) { grid-area: pemilik; font-size: 11px; }
+  /* kolom Residu hanya dirender untuk Admin; kalau tidak ada, petak "residu"
+     tinggal kosong dan tingginya nol, jadi susunan baris tidak berubah */
+  #borang-centang tbody td:nth-child(14) {
+    grid-area: residu;
+    text-align: left;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
 
   #borang-centang tbody td:nth-child(5)::before  { content: "Desa: "; }
   #borang-centang tbody td:nth-child(7)::before  { content: "SU: "; }
   #borang-centang tbody td:nth-child(11)::before { content: "Pemilik: "; }
+  #borang-centang tbody td:nth-child(14)::before { content: "Residu: "; }
   #borang-centang tbody td::before { color: var(--redup); font-weight: 600; }
 
   #borang-centang tbody tr.baris-diubah td:first-child { box-shadow: none; }
