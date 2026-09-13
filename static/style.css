@@ -163,6 +163,9 @@ tr.total td { font-weight: 700; background: #f0f3f6; border-top: 2px solid var(-
 .tanda.biru { background: var(--biru-muda); color: var(--biru); border-color: #c7dbec; }
 .tanda.ungu { background: #f2e8f8; color: var(--ungu); border-color: #ddc7ea; }
 
+/* label yang sekaligus tautan, mis. penanda "‹ hak lama" di katalog */
+a.tanda:hover { text-decoration: none; filter: brightness(.96); }
+
 .kw1 { color: var(--hijau); font-weight: 600; }
 .kwx { color: var(--oranye); font-weight: 600; }
 
@@ -334,6 +337,52 @@ input.isian-catatan { width: 160px; padding: 4px 6px; font-size: 12px; }
 .nowrap { white-space: nowrap; }
 .redup { color: var(--redup); }
 .kecil { font-size: 12px; }
+
+/* ------------------------------------------------------- bidang tambahan */
+/* kartu bidang yang dimasukkan sendiri, bukan dari tarikan KKP */
+.kartu.tepi-ungu { border-left: 4px solid var(--ungu); }
+
+.pilih-tautan { max-width: 640px; }
+.tautan-terpilih {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  background: #f2e8f8;
+  border: 1px solid #ddc7ea;
+  border-radius: 6px;
+  padding: 8px 12px;
+  margin-bottom: 10px;
+}
+/* display:flex di atas mengalahkan bawaan [hidden], jadi ditegaskan lagi */
+.tautan-terpilih[hidden] { display: none; }
+.tautan-terpilih .lepas-tautan { margin-left: auto; }
+
+.hasil-tautan {
+  border: 1px solid var(--garis);
+  border-radius: 6px;
+  margin-top: 6px;
+  max-height: 260px;
+  overflow-y: auto;
+  background: #fff;
+}
+.baris-tautan {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  width: 100%;
+  text-align: left;
+  background: #fff;
+  color: var(--teks);
+  border: 0;
+  border-bottom: 1px solid var(--garis);
+  border-radius: 0;
+  padding: 8px 12px;
+  font-size: 13px;
+}
+.baris-tautan:last-child { border-bottom: 0; }
+.baris-tautan:hover { background: var(--biru-muda); filter: none; }
 
 /* ==========================================================================
    TAMPILAN LAYAR KECIL

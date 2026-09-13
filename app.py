@@ -16,7 +16,7 @@ from starlette.middleware import Middleware
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.sessions import SessionMiddleware
 from starlette.requests import Request
-from starlette.responses import RedirectResponse, Response
+from starlette.responses import JSONResponse, RedirectResponse, Response
 from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
 from starlette.templating import Jinja2Templates
@@ -101,7 +101,10 @@ SELECT b.id, b.nomor_hak, b.surat_ukur, b.nib, b.luas, b.produk, b.kw,
        s.ruang, s.lemari, s.rak, s.box,
        p.bt_ada, p.su_ada, p.status_identifikasi, p.petugas AS petugas_periksa,
        pj.id AS pinjam_id, pj.peminjam, pj.tanggal_pinjam, pj.jatuh_tempo,
-       rs.id AS residu_id, rs.sumber AS residu_sumber, rs.status AS residu_status
+       rs.id AS residu_id, rs.sumber AS residu_sumber, rs.status AS residu_status,
+       tb.bidang_id AS tambahan_id, tb.alasan AS tambahan_alasan,
+       tb.catatan AS tambahan_catatan, tb.tautan_id AS tambahan_tautan,
+       tk.n AS ditaut, tk.satu AS ditaut_id, tk.nomor AS ditaut_nomor
 FROM bidang b
 JOIN wilayah w      ON w.id = b.wilayah_id
 JOIN jenis_hak j    ON j.kode = b.jenis_hak
@@ -109,6 +112,13 @@ LEFT JOIN penyimpanan s ON s.bidang_id = b.id
 LEFT JOIN pemeriksaan p ON p.bidang_id = b.id
 LEFT JOIN peminjaman pj ON pj.bidang_id = b.id AND pj.tanggal_kembali IS NULL
 LEFT JOIN residu rs     ON rs.bidang_id = b.id
+LEFT JOIN bidang_tambahan tb ON tb.bidang_id = b.id
+-- arah sebaliknya: nomor hak lama mana saja yang menaut ke bidang ini.
+-- Dikelompokkan sekali di subkueri, bukan per baris, karena tabelnya kecil.
+LEFT JOIN (SELECT tt.tautan_id AS tid, COUNT(*) AS n, MIN(tt.bidang_id) AS satu,
+                  GROUP_CONCAT(b2.nomor_hak, ', ') AS nomor
+           FROM bidang_tambahan tt JOIN bidang b2 ON b2.id = tt.bidang_id
+           WHERE tt.tautan_id IS NOT NULL GROUP BY tt.tautan_id) tk ON tk.tid = b.id
 """
 
 
@@ -143,6 +153,17 @@ def bangun_filter(qp):
         syarat.append("rs.id IS NOT NULL")
     elif rd == "belum":
         syarat.append("rs.id IS NULL")
+    tb = (qp.get("tambahan") or "").strip()
+    if tb == "ada":
+        syarat.append("tb.bidang_id IS NOT NULL")
+    elif tb == "belum":
+        syarat.append("tb.bidang_id IS NULL")
+    elif tb == "ditaut":
+        # nomor hak aktif yang dipakai sebagai pengganti oleh bidang tambahan;
+        # ditulis sebagai EXISTS supaya kueri penghitung jumlah tidak perlu
+        # ikut menggabungkan subkueri tk
+        syarat.append("EXISTS (SELECT 1 FROM bidang_tambahan tt "
+                      "WHERE tt.tautan_id = b.id)")
     st = (qp.get("periksa") or "").strip()
     if st == "belum":
         syarat.append("(p.status_identifikasi IS NULL OR p.status_identifikasi = 'Belum Diperiksa')")
@@ -207,7 +228,8 @@ async def katalog(request: Request):
         "SELECT COUNT(*) FROM bidang b JOIN wilayah w ON w.id=b.wilayah_id "
         "LEFT JOIN pemeriksaan p ON p.bidang_id=b.id "
         "LEFT JOIN peminjaman pj ON pj.bidang_id=b.id AND pj.tanggal_kembali IS NULL "
-        "LEFT JOIN residu rs ON rs.bidang_id=b.id"
+        "LEFT JOIN residu rs ON rs.bidang_id=b.id "
+        "LEFT JOIN bidang_tambahan tb ON tb.bidang_id=b.id"
         + where, par).fetchone()[0]
     baris = kon.execute(
         SQL_BIDANG + where + " ORDER BY w.nama_kecamatan, w.nama_desa, b.nomor_hak "
@@ -403,6 +425,276 @@ async def simpan_centang(request: Request):
     return RedirectResponse(tujuan + pisah + "&".join(kabar), status_code=303)
 
 
+# ------------------------------------------------------- bidang tambahan
+# Buku tanah dan surat ukurnya ada di rak, tetapi bidangnya tidak ikut terbawa
+# berkas tarikan KKP: nomor haknya sudah tidak aktif -- umumnya karena
+# penggantian/pemekaran desa, sehingga di KKP terbit nomor hak baru yang
+# tercatat di desa lain. Bidang seperti itu dimasukkan sendiri lewat halaman
+# "Tambah bidang", ditandai di tabel bidang_tambahan (penanda + catatan), dan
+# boleh ditautkan ke bidang pengganti yang kode haknya masih aktif.
+
+# kolom tabel bidang yang boleh diisi lewat borang, urut seperti di borangnya
+KOLOM_TAMBAH = ["surat_ukur", "nib", "luas", "produk", "luas_peta",
+                "validator_tekstual", "validator_peta", "blokir_internal",
+                "kw", "pemilik_pertama", "pemilik_akhir"]
+
+POLA_NOMOR_HAK = re.compile(r"\d{2}(\.\d{2}){3}\.\d\.\d{5}")
+
+
+def awalan_hak(kode_desa, jenis_hak):
+    """Awalan nomor hak dari kode desa + angka jenis hak, mis. 18.04.01.01.1."""
+    kode = re.sub(r"\D", "", kode_desa or "")
+    angka = re.sub(r"\D", "", jenis_hak or "")
+    if len(kode) != 8 or not angka:
+        return ""
+    return "%s.%s.%s.%s.%s." % (kode[0:2], kode[2:4], kode[4:6], kode[6:8], angka)
+
+
+def susun_nomor_hak(kode_desa, jenis_hak, teks):
+    """Lengkapi nomor hak yang ditulis singkat menjadi bentuk baku KKP.
+
+    Petugas cukup mengetik nomor urutnya (mis. ``123``); awalannya diambil dari
+    desa dan jenis hak yang dipilih. Nomor yang sudah lengkap dipakai apa
+    adanya, dan bentuk lain dibiarkan seperti yang diketik supaya nomor lama
+    yang tidak mengikuti pola KKP tetap bisa dicatat.
+    """
+    n = re.sub(r"\s+", "", teks or "")
+    if not n or POLA_NOMOR_HAK.fullmatch(n):
+        return n
+    awalan = awalan_hak(kode_desa, jenis_hak)
+    if awalan and n.isdigit() and len(n) <= 5:
+        return awalan + n.zfill(5)
+    return n
+
+
+def angka_luas(teks):
+    """Luas dalam m2; isian yang bukan angka dianggap kosong."""
+    n = re.sub(r"[^\d]", "", teks or "")
+    return int(n) if n else None
+
+
+def bidang_ringkas(kon, bid):
+    """Satu baris bidang secukupnya untuk ditampilkan sebagai tautan."""
+    if not bid:
+        return None
+    return kon.execute(
+        "SELECT b.id, b.nomor_hak, b.surat_ukur, b.nib, b.luas, b.kw, "
+        "       b.pemilik_akhir, j.nama AS nama_hak, w.nama_desa, w.nama_kecamatan "
+        "FROM bidang b JOIN wilayah w ON w.id = b.wilayah_id "
+        "JOIN jenis_hak j ON j.kode = b.jenis_hak WHERE b.id = ?", (bid,)).fetchone()
+
+
+def tautan_sah(kon, teks, bukan=None):
+    """Id bidang tautan dari borang; None bila kosong atau tidak ditemukan."""
+    t = (teks or "").strip()
+    if not t.isdigit():
+        return None
+    tid = int(t)
+    if bukan is not None and tid == bukan:
+        return None
+    return tid if kon.execute("SELECT 1 FROM bidang WHERE id = ?", (tid,)).fetchone() else None
+
+
+def isian_tambah(form):
+    """Nilai borang tambah bidang, dipakai ulang saat borang harus tampil lagi."""
+    nilai = {k: isi(form, k) for k in KOLOM_TAMBAH}
+    nilai.update({
+        "wilayah_id": isi(form, "wilayah_id"),
+        "jenis_hak": isi(form, "jenis_hak"),
+        "nomor_hak": isi(form, "nomor_hak"),
+        "alasan": isi(form, "alasan"),
+        "catatan": isi(form, "catatan"),
+        "tautan_id": isi(form, "tautan_id"),
+        "tautan_catatan": isi(form, "tautan_catatan"),
+    })
+    return nilai
+
+
+def halaman_tambah(request, kon, nilai=None, galat=None, bentrok=None):
+    """Tampilkan borang tambah bidang, lengkap dengan daftar desa & jenis hak."""
+    desa = [dict(r) for r in kon.execute(
+        "SELECT id, kode_desa, nama_desa, nama_kecamatan FROM wilayah "
+        "ORDER BY nama_kecamatan, nama_desa")]
+    kecamatan = kon.execute(
+        "SELECT DISTINCT nama_kecamatan FROM wilayah ORDER BY nama_kecamatan").fetchall()
+    daftar_hak = kon.execute("SELECT kode, nama FROM jenis_hak ORDER BY kode").fetchall()
+    tautan = bidang_ringkas(kon, tautan_sah(kon, (nilai or {}).get("tautan_id")))
+    return templates.TemplateResponse(request, "bidang_baru.html", konteks(
+        request, desa=desa, kecamatan=kecamatan, daftar_hak=daftar_hak,
+        nilai=nilai or {}, galat=galat, bentrok=bentrok, tautan=tautan),
+        status_code=400 if galat else 200)
+
+
+async def tambah_bidang(request: Request):
+    """Borang tambah bidang; GET menampilkan, POST menyimpan."""
+    kon = db.sambung()
+    if request.method == "GET":
+        hasil = halaman_tambah(request, kon)
+        kon.close()
+        return hasil
+
+    form = await request.form()
+    nilai = isian_tambah(form)
+    siapa = petugas_aktif(request)
+
+    w = None
+    if (nilai["wilayah_id"] or "").isdigit():
+        w = kon.execute("SELECT id, kode_desa, nama_desa FROM wilayah WHERE id = ?",
+                        (int(nilai["wilayah_id"]),)).fetchone()
+    jenis = nilai["jenis_hak"] if kon.execute(
+        "SELECT 1 FROM jenis_hak WHERE kode = ?",
+        (nilai["jenis_hak"] or "",)).fetchone() else None
+
+    galat = None
+    if w is None:
+        galat = "Desa belum dipilih."
+    elif not jenis:
+        galat = "Jenis hak belum dipilih."
+    elif not nilai["nomor_hak"]:
+        galat = "Nomor hak wajib diisi."
+    if galat:
+        hasil = halaman_tambah(request, kon, nilai, galat)
+        kon.close()
+        return hasil
+
+    nomor = susun_nomor_hak(w["kode_desa"], jenis, nilai["nomor_hak"])
+    nilai["nomor_hak"] = nomor
+    bentrok = kon.execute(
+        "SELECT b.id, b.nomor_hak, w.nama_desa FROM bidang b "
+        "JOIN wilayah w ON w.id = b.wilayah_id "
+        "WHERE b.wilayah_id = ? AND b.jenis_hak = ? AND b.nomor_hak = ?",
+        (w["id"], jenis, nomor)).fetchone()
+    if bentrok:
+        hasil = halaman_tambah(
+            request, kon, nilai,
+            "Nomor hak %s sudah ada di desa %s, jadi tidak ditambahkan lagi."
+            % (nomor, w["nama_desa"]), bentrok)
+        kon.close()
+        return hasil
+
+    kolom = ["wilayah_id", "jenis_hak", "nomor_hak"] + KOLOM_TAMBAH
+    isian = [w["id"], jenis, nomor] + [
+        angka_luas(nilai["luas"]) if k == "luas" else nilai[k] for k in KOLOM_TAMBAH]
+    bid = kon.execute(
+        "INSERT INTO bidang (%s) VALUES (%s)"
+        % (", ".join(kolom), ",".join("?" * len(kolom))), isian).lastrowid
+    kon.execute(
+        "INSERT INTO bidang_tambahan (bidang_id, alasan, catatan, tautan_id, "
+        "tautan_catatan, dibuat_oleh, dibuat_pada, diubah_oleh, diubah_pada) "
+        "VALUES (?,?,?,?,?,?,?,?,?)",
+        (bid, nilai["alasan"], nilai["catatan"],
+         tautan_sah(kon, nilai["tautan_id"], bid), nilai["tautan_catatan"],
+         siapa or None, sekarang(), siapa or None, sekarang()))
+    tulis_log(kon, siapa, "Tambah bidang", bid,
+              "%s - %s" % (nomor, nilai["alasan"] or "tanpa penanda"))
+    kon.commit()
+    kon.close()
+    return RedirectResponse("/bidang/%d?pesan=dibuat" % bid, status_code=303)
+
+
+async def cari_bidang(request: Request):
+    """Pencarian bidang untuk memilih tautan; dipanggil dari borang lewat JS."""
+    q = (request.query_params.get("q") or "").strip()
+    if len(q) < 3:
+        return JSONResponse([])
+    par = ["%" + q + "%"] * 3
+    syarat = "(b.nomor_hak LIKE ? OR b.nib LIKE ? OR b.pemilik_akhir LIKE ?)"
+    kecuali = (request.query_params.get("kecuali") or "").strip()
+    if kecuali.isdigit():
+        syarat += " AND b.id <> ?"
+        par.append(int(kecuali))
+    kon = db.sambung()
+    baris = kon.execute(
+        "SELECT b.id, b.nomor_hak, b.surat_ukur, b.pemilik_akhir, j.nama AS nama_hak, "
+        "w.nama_desa, w.nama_kecamatan, tb.bidang_id AS tambahan "
+        "FROM bidang b JOIN wilayah w ON w.id = b.wilayah_id "
+        "JOIN jenis_hak j ON j.kode = b.jenis_hak "
+        "LEFT JOIN bidang_tambahan tb ON tb.bidang_id = b.id "
+        "WHERE " + syarat + " ORDER BY b.nomor_hak LIMIT 20", par).fetchall()
+    kon.close()
+    return JSONResponse([dict(r) for r in baris])
+
+
+async def simpan_tambahan(request: Request):
+    """Simpan data, penanda, catatan, dan tautan satu bidang tambahan.
+
+    Hanya bidang yang memang dimasukkan lewat aplikasi yang boleh diubah dari
+    sini; bidang hasil tarikan KKP tetap tidak bisa disunting supaya isinya
+    tidak melenceng dari sumbernya.
+    """
+    bid = int(request.path_params["bidang_id"])
+    form = await request.form()
+    siapa = petugas_aktif(request)
+    kon = db.sambung()
+    if kon.execute("SELECT 1 FROM bidang_tambahan WHERE bidang_id = ?",
+                   (bid,)).fetchone() is None:
+        kon.close()
+        return tolak(request, "Bidang ini bukan bidang tambahan, datanya tidak "
+                              "bisa diubah dari sini.")
+
+    b = kon.execute(
+        "SELECT b.wilayah_id, b.jenis_hak, w.kode_desa FROM bidang b "
+        "JOIN wilayah w ON w.id = b.wilayah_id WHERE b.id = ?", (bid,)).fetchone()
+    # nomor hak hanya diganti bila terisi dan tidak bentrok dengan bidang lain
+    # di desa yang sama; bila bentrok, nomor lamanya dibiarkan
+    nomor = susun_nomor_hak(b["kode_desa"], b["jenis_hak"], isi(form, "nomor_hak"))
+    if nomor and not kon.execute(
+            "SELECT 1 FROM bidang WHERE wilayah_id = ? AND jenis_hak = ? "
+            "AND nomor_hak = ? AND id <> ?",
+            (b["wilayah_id"], b["jenis_hak"], nomor, bid)).fetchone():
+        kon.execute("UPDATE bidang SET nomor_hak = ? WHERE id = ?", (nomor, bid))
+    kon.execute(
+        "UPDATE bidang SET %s WHERE id = ?"
+        % ", ".join("%s = ?" % k for k in KOLOM_TAMBAH),
+        [angka_luas(form.get("luas")) if k == "luas" else isi(form, k)
+         for k in KOLOM_TAMBAH] + [bid])
+    kon.execute(
+        "UPDATE bidang_tambahan SET alasan = ?, catatan = ?, tautan_id = ?, "
+        "tautan_catatan = ?, diubah_oleh = ?, diubah_pada = ? WHERE bidang_id = ?",
+        (isi(form, "alasan"), isi(form, "catatan"),
+         tautan_sah(kon, isi(form, "tautan_id"), bid), isi(form, "tautan_catatan"),
+         siapa or None, sekarang(), bid))
+    tulis_log(kon, siapa, "Ubah bidang tambahan", bid, isi(form, "alasan"))
+    kon.commit()
+    kon.close()
+    return RedirectResponse("/bidang/%d?pesan=tersimpan" % bid, status_code=303)
+
+
+async def hapus_bidang(request: Request):
+    """Buang satu bidang tambahan yang ternyata salah dimasukkan (khusus Admin).
+
+    Bidang yang sudah punya riwayat peminjaman atau tercatat sebagai residu
+    tidak dibuang supaya riwayatnya tidak ikut hilang.
+    """
+    if not is_admin(request):
+        return tolak(request)
+    bid = int(request.path_params["bidang_id"])
+    kon = db.sambung()
+    if kon.execute("SELECT 1 FROM bidang_tambahan WHERE bidang_id = ?",
+                   (bid,)).fetchone() is None:
+        kon.close()
+        return tolak(request, "Hanya bidang tambahan yang boleh dihapus dari sini.")
+    terpakai = [nama for tabel, nama in (("peminjaman", "riwayat peminjaman"),
+                                         ("residu", "catatan residu"))
+                if kon.execute("SELECT 1 FROM %s WHERE bidang_id = ?" % tabel,
+                               (bid,)).fetchone()]
+    if terpakai:
+        kon.close()
+        return tolak(request, "Bidang ini sudah punya %s, jadi tidak dihapus."
+                     % " dan ".join(terpakai))
+    r = kon.execute("SELECT nomor_hak FROM bidang WHERE id = ?", (bid,)).fetchone()
+    # tautan dari bidang tambahan lain dilepas dulu supaya kunci asingnya aman
+    kon.execute("UPDATE bidang_tambahan SET tautan_id = NULL WHERE tautan_id = ?", (bid,))
+    for tabel in ("penyimpanan", "pemeriksaan", "bidang_tambahan"):
+        kon.execute("DELETE FROM %s WHERE bidang_id = ?" % tabel, (bid,))
+    kon.execute("DELETE FROM bidang WHERE id = ?", (bid,))
+    tulis_log(kon, petugas_aktif(request), "Hapus bidang tambahan", None,
+              r["nomor_hak"] if r else str(bid))
+    kon.commit()
+    kon.close()
+    return RedirectResponse("/katalog?dihapus=1", status_code=303)
+
+
 async def detail(request: Request):
     bid = int(request.path_params["bidang_id"])
     kon = db.sambung()
@@ -424,10 +716,23 @@ async def detail(request: Request):
         "SELECT nama FROM petugas WHERE aktif=1 ORDER BY nama").fetchall()
     baris_residu = kon.execute(
         "SELECT * FROM residu WHERE bidang_id = ?", (bid,)).fetchone()
+    # bidang ini dimasukkan sendiri lewat aplikasi? kalau ya, penanda, catatan,
+    # dan tautannya ikut ditampilkan dan boleh disunting di halaman ini
+    tambahan = kon.execute(
+        "SELECT * FROM bidang_tambahan WHERE bidang_id = ?", (bid,)).fetchone()
+    tautan = bidang_ringkas(kon, tambahan["tautan_id"] if tambahan else None)
+    # arah sebaliknya: bidang tambahan mana saja yang menaut ke bidang ini
+    penaut = kon.execute(
+        "SELECT b.id, b.nomor_hak, b.surat_ukur, j.nama AS nama_hak, "
+        "w.nama_desa, w.nama_kecamatan, t.alasan, t.catatan, t.tautan_catatan "
+        "FROM bidang_tambahan t JOIN bidang b ON b.id = t.bidang_id "
+        "JOIN wilayah w ON w.id = b.wilayah_id JOIN jenis_hak j ON j.kode = b.jenis_hak "
+        "WHERE t.tautan_id = ? ORDER BY b.nomor_hak", (bid,)).fetchall()
     kon.close()
     return templates.TemplateResponse(request, "detail.html", konteks(
         request, b=b, d=detail_bidang, pemeriksaan=pemeriksaan, penyimpanan=penyimpanan,
         riwayat=riwayat, daftar_petugas=daftar_petugas, residu=baris_residu,
+        tambahan=tambahan, tautan=tautan, penaut=penaut,
         hari_ini=hari_ini(),
         jatuh_tempo=(date.today() + timedelta(days=LAMA_PINJAM_HARI)).isoformat()))
 
@@ -2019,7 +2324,11 @@ rute = [
     Route("/", beranda),
     Route("/katalog", katalog),
     Route("/katalog/centang", simpan_centang, methods=["POST"]),
+    Route("/bidang/tambah", tambah_bidang, methods=["GET", "POST"]),
+    Route("/bidang/cari.json", cari_bidang),
     Route("/bidang/{bidang_id:int}", detail),
+    Route("/bidang/{bidang_id:int}/tambahan", simpan_tambahan, methods=["POST"]),
+    Route("/bidang/{bidang_id:int}/hapus", hapus_bidang, methods=["POST"]),
     Route("/bidang/{bidang_id:int}/simpan", simpan_bidang, methods=["POST"]),
     Route("/bidang/{bidang_id:int}/pinjam", pinjam, methods=["POST"]),
     Route("/pinjam/{pinjam_id:int}/kembali", kembalikan, methods=["POST"]),

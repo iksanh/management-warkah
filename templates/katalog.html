@@ -23,6 +23,9 @@
     yang diimpor, bukan ditandai dari katalog, jadi tidak dibatalkan dari sini.
   </div>
 {% endif %}
+{% if qp.get('dihapus') %}
+  <div class="pesan sukses">Bidang tambahan dihapus.</div>
+{% endif %}
 
 <div class="kartu">
   <form class="saring" method="get" action="/katalog">
@@ -97,6 +100,15 @@
       </select>
     </div>
     <div class="bidang-isian">
+      <label for="tambahan">Asal data</label>
+      <select id="tambahan" name="tambahan">
+        <option value="">Semua</option>
+        <option value="ada" {{ 'selected' if qp.get('tambahan') == 'ada' }}>Hanya bidang tambahan</option>
+        <option value="belum" {{ 'selected' if qp.get('tambahan') == 'belum' }}>Hanya dari tarikan KKP</option>
+        <option value="ditaut" {{ 'selected' if qp.get('tambahan') == 'ditaut' }}>Hak aktif yang ditaut</option>
+      </select>
+    </div>
+    <div class="bidang-isian">
       <label for="petugas">Petugas periksa</label>
       <select id="petugas" name="petugas">
         <option value="">Semua</option>
@@ -110,6 +122,8 @@
       <div style="display:flex; gap:6px">
         <button type="submit">Cari</button>
         <a href="/katalog" class="tombol kedua">Reset</a>
+        <a href="/bidang/tambah" class="tombol kedua"
+           title="Untuk buku tanah & surat ukur yang ada secara fisik tetapi tidak terbawa tarikan KKP">+ Bidang</a>
       </div>
     </div>
   </form>
@@ -242,7 +256,28 @@
             <input type="checkbox" class="c-su" data-id="{{ r.id }}"
                    title="Surat ukur ada" {{ 'checked' if r.su_ada == 'Ada' }}>
           </td>
-          <td class="nowrap"><a href="/bidang/{{ r.id }}" class="mono">{{ r.nomor_hak }}</a></td>
+          <td class="nowrap">
+            <a href="/bidang/{{ r.id }}" class="mono">{{ r.nomor_hak }}</a>
+            {% if r.tambahan_id %}
+              <span class="tanda ungu"
+                    title="{{ r.tambahan_alasan or 'Dimasukkan sendiri lewat aplikasi, bukan dari tarikan KKP' }}{{ ' — ' ~ r.tambahan_catatan if r.tambahan_catatan }}">Tambahan</span>
+              {% if r.tambahan_tautan %}
+                <a href="/bidang/{{ r.tambahan_tautan }}" class="kecil"
+                   title="Buka nomor hak baru yang masih aktif">› hak aktif</a>
+              {% endif %}
+            {% endif %}
+            {# nomor hak aktif yang dipakai sebagai pengganti oleh nomor hak lama #}
+            {% if r.ditaut %}
+              {% set ket = 'Ditaut dari nomor hak lama: ' ~ r.ditaut_nomor %}
+              {% if r.ditaut == 1 %}
+                <a href="/bidang/{{ r.ditaut_id }}" class="tanda biru"
+                   title="{{ ket }}">‹ hak lama</a>
+              {% else %}
+                <a href="/bidang/{{ r.id }}" class="tanda biru"
+                   title="{{ ket }}">‹ {{ r.ditaut }} hak lama</a>
+              {% endif %}
+            {% endif %}
+          </td>
           <td class="nowrap kecil kol-opsional">{{ r.nama_hak }}</td>
           <td>{{ r.nama_desa }}</td>
           <td class="kecil redup kol-opsional">{{ r.nama_kecamatan }}</td>

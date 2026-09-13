@@ -1,8 +1,10 @@
 {% extends "dasar.html" %}
+{% import "bagian_tautan.html" as tautan_bagian %}
 {% block judul %}{{ d.nomor_hak }} — Aplikasi Warkah{% endblock %}
 {% block isi %}
 
 {% set daftar_pesan = {'tersimpan': ('sukses', 'Perubahan tersimpan.'),
+                       'dibuat': ('sukses', 'Bidang baru tersimpan. Lokasi simpan dan hasil pemeriksaannya bisa langsung diisi di bawah.'),
                        'dipinjam': ('sukses', 'Peminjaman tercatat.'),
                        'masih-dipinjam': ('awas', 'Warkah ini masih dalam status dipinjam.')} %}
 {% set pesan = daftar_pesan.get(request.query_params.get('pesan')) %}
@@ -18,7 +20,62 @@
   {% else %}
     <span class="tanda hijau">Tersedia</span>
   {% endif %}
+  {% if tambahan %}
+    <span class="tanda ungu" title="Dimasukkan sendiri lewat aplikasi, bukan dari tarikan KKP">Tambahan</span>
+    {% if tambahan.alasan %}<span class="tanda abu">{{ tambahan.alasan }}</span>{% endif %}
+  {% endif %}
 </p>
+
+{% if tambahan %}
+  <div class="kartu tepi-ungu">
+    <h2>Bidang tambahan</h2>
+    <p class="jelas" style="margin-top:0">
+      Bidang ini dimasukkan sendiri lewat aplikasi karena berkasnya ada secara fisik
+      tetapi tidak terbawa berkas tarikan KKP.
+      Dicatat oleh {{ tambahan.dibuat_oleh or '—' }}{% if tambahan.dibuat_pada %} pada {{ tambahan.dibuat_pada }}{% endif %}.
+    </p>
+    <dl class="rincian">
+      <dt>Penanda</dt><dd>{{ tambahan.alasan or '—' }}</dd>
+      <dt>Catatan</dt><dd style="white-space:pre-line">{{ tambahan.catatan or '—' }}</dd>
+      <dt>Nomor hak aktif</dt>
+      <dd>
+        {% if tautan %}
+          <a href="/bidang/{{ tautan.id }}" class="mono">{{ tautan.nomor_hak }}</a>
+          <span class="kecil redup">{{ tautan.nama_hak }} · {{ tautan.nama_desa }},
+            Kec. {{ tautan.nama_kecamatan }}</span>
+        {% else %}
+          <span class="redup">belum ditautkan</span>
+        {% endif %}
+      </dd>
+      <dt>Catatan tautan</dt><dd>{{ tambahan.tautan_catatan or '—' }}</dd>
+    </dl>
+  </div>
+{% endif %}
+
+{% if penaut %}
+  <div class="kartu tepi-ungu">
+    <h2>Ditaut dari bidang tambahan</h2>
+    <p class="jelas" style="margin-top:0">
+      Nomor hak ini dicatat sebagai pengganti yang masih aktif untuk
+      {{ penaut | length }} bidang yang buku tanah &amp; surat ukurnya ada secara fisik
+      tetapi nomor haknya sudah tidak aktif di KKP.
+    </p>
+    <table>
+      <thead><tr><th>Nomor hak lama</th><th>Desa</th><th>Surat ukur</th><th>Penanda</th><th>Catatan</th></tr></thead>
+      <tbody>
+      {% for t in penaut %}
+        <tr>
+          <td class="nowrap"><a href="/bidang/{{ t.id }}" class="mono">{{ t.nomor_hak }}</a></td>
+          <td class="kecil">{{ t.nama_desa }}<br><span class="redup">Kec. {{ t.nama_kecamatan }}</span></td>
+          <td class="kecil">{{ t.surat_ukur or '—' }}</td>
+          <td class="kecil">{% if t.alasan %}<span class="tanda abu">{{ t.alasan }}</span>{% else %}—{% endif %}</td>
+          <td class="kecil">{{ t.tautan_catatan or t.catatan or '—' }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% endif %}
 
 <div class="kisi k2">
 
@@ -39,7 +96,12 @@
       <dt>Kecamatan</dt><dd>{{ d.nama_kecamatan }}</dd>
     </dl>
     <p class="kecil redup" style="margin:14px 0 0">
-      Data di atas berasal dari aplikasi KKP dan tidak diubah dari sini.
+      {% if tambahan %}
+        Data di atas dimasukkan sendiri lewat aplikasi, bukan dari tarikan KKP,
+        dan masih bisa diperbaiki di bagian <em>Data bidang tambahan</em> di bawah.
+      {% else %}
+        Data di atas berasal dari aplikasi KKP dan tidak diubah dari sini.
+      {% endif %}
     </p>
   </div>
 
@@ -248,5 +310,96 @@
     {% endif %}
   </div>
 </form>
+
+{% if tambahan %}
+  <form method="post" action="/bidang/{{ b.id }}/tambahan">
+    <div class="kartu tepi-ungu">
+      <h2>Data bidang tambahan</h2>
+      <p class="jelas" style="margin-top:0">
+        Karena bidang ini tidak berasal dari tarikan KKP, datanya boleh diperbaiki
+        di sini bila ada salah ketik.
+      </p>
+
+      <div class="grup-judul ungu">Data bidang</div>
+      <div class="baris-borang">
+        <div class="bidang-isian"><label for="t_nomor_hak">Nomor hak</label>
+          <input type="text" id="t_nomor_hak" name="nomor_hak" class="mono" value="{{ d.nomor_hak }}"></div>
+        <div class="bidang-isian"><label for="t_surat_ukur">Surat ukur</label>
+          <input type="text" id="t_surat_ukur" name="surat_ukur" value="{{ d.surat_ukur or '' }}"></div>
+        <div class="bidang-isian"><label for="t_nib">NIB</label>
+          <input type="text" id="t_nib" name="nib" class="mono" value="{{ d.nib or '' }}"></div>
+        <div class="bidang-isian"><label for="t_luas">Luas (m²)</label>
+          <input type="text" id="t_luas" name="luas" inputmode="numeric" value="{{ d.luas or '' }}"></div>
+        <div class="bidang-isian"><label for="t_produk">Produk</label>
+          <input type="text" id="t_produk" name="produk" value="{{ d.produk or '' }}"></div>
+        <div class="bidang-isian"><label for="t_luas_peta">Luas peta</label>
+          <input type="text" id="t_luas_peta" name="luas_peta" value="{{ d.luas_peta or '' }}"></div>
+        <div class="bidang-isian"><label for="t_kw">KW</label>
+          <select id="t_kw" name="kw">
+            <option value="">—</option>
+            {% for k in ['KW1','KW2','KW3','KW4','KW5','KW6'] %}
+              <option value="{{ k }}" {{ 'selected' if d.kw == k }}>{{ k }}</option>
+            {% endfor %}
+          </select></div>
+        <div class="bidang-isian"><label for="t_validator_tekstual">Validator tekstual</label>
+          <input type="text" id="t_validator_tekstual" name="validator_tekstual"
+                 value="{{ d.validator_tekstual or '' }}"></div>
+        <div class="bidang-isian"><label for="t_validator_peta">Validator peta</label>
+          <input type="text" id="t_validator_peta" name="validator_peta" value="{{ d.validator_peta or '' }}"></div>
+        <div class="bidang-isian"><label for="t_blokir_internal">Blokir internal</label>
+          <input type="text" id="t_blokir_internal" name="blokir_internal" value="{{ d.blokir_internal or '' }}"></div>
+        <div class="bidang-isian"><label for="t_pemilik_pertama">Pemilik pertama</label>
+          <input type="text" id="t_pemilik_pertama" name="pemilik_pertama" value="{{ d.pemilik_pertama or '' }}"></div>
+        <div class="bidang-isian"><label for="t_pemilik_akhir">Pemilik terakhir</label>
+          <input type="text" id="t_pemilik_akhir" name="pemilik_akhir" value="{{ d.pemilik_akhir or '' }}"></div>
+      </div>
+
+      <div class="grup-judul oranye">Penanda &amp; catatan</div>
+      <div class="baris-borang">
+        <div class="bidang-isian" style="max-width:320px">
+          <label for="t_alasan">Sebab dimasukkan sendiri</label>
+          <select id="t_alasan" name="alasan">
+            <option value="">—</option>
+            {% for a in pilihan.alasan_tambahan %}
+              <option value="{{ a }}" {{ 'selected' if tambahan.alasan == a }}>{{ a }}</option>
+            {% endfor %}
+          </select>
+        </div>
+      </div>
+      <div class="bidang-isian" style="margin-bottom:14px">
+        <label for="t_catatan">Catatan bidang</label>
+        <textarea id="t_catatan" name="catatan" class="lebar-penuh">{{ tambahan.catatan or '' }}</textarea>
+      </div>
+
+      <div class="grup-judul">Tautan ke bidang yang kode haknya masih aktif</div>
+      {{ tautan_bagian.kotak(tautan, tambahan.tautan_catatan, b.id) }}
+
+      <div style="margin-top:18px">
+        <button type="submit">Simpan bidang tambahan</button>
+        {% if tambahan.diubah_pada %}
+          <span class="kecil redup" style="margin-left:10px">
+            Terakhir diubah {{ tambahan.diubah_pada }} oleh {{ tambahan.diubah_oleh or '—' }}
+          </span>
+        {% endif %}
+      </div>
+    </div>
+  </form>
+
+  {% if admin %}
+    <form method="post" action="/bidang/{{ b.id }}/hapus"
+          onsubmit="return confirm('Hapus bidang tambahan {{ d.nomor_hak }}? Lokasi simpan dan hasil pemeriksaannya ikut terhapus.');">
+      <div class="kartu">
+        <h2>Hapus bidang tambahan</h2>
+        <p class="jelas" style="margin-top:0">
+          Khusus Admin, untuk bidang yang ternyata salah dimasukkan. Bidang yang sudah
+          punya riwayat peminjaman atau tercatat sebagai residu tidak bisa dihapus.
+        </p>
+        <button type="submit" class="merah">Hapus bidang ini</button>
+      </div>
+    </form>
+  {% endif %}
+
+  {{ tautan_bagian.skrip() }}
+{% endif %}
 
 {% endblock %}

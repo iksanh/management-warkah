@@ -1,0 +1,132 @@
+{# Pemilih bidang tautan: dipakai di borang tambah bidang dan di halaman detail.
+   Hasil pencarian diambil dari /bidang/cari.json supaya seluruh katalog bisa
+   ditelusuri tanpa memuat ulang halaman. #}
+
+{% macro kotak(tautan, catatan, kecuali='') %}
+<div class="pilih-tautan" data-kecuali="{{ kecuali }}">
+  <input type="hidden" name="tautan_id" value="{{ tautan.id if tautan else '' }}">
+
+  <div class="tautan-terpilih" {{ 'hidden' if not tautan }}>
+    {% if tautan %}
+      <a href="/bidang/{{ tautan.id }}" class="mono">{{ tautan.nomor_hak }}</a>
+      <span class="kecil redup">{{ tautan.nama_hak }} · {{ tautan.nama_desa }},
+        Kec. {{ tautan.nama_kecamatan }}{% if tautan.surat_ukur %} · SU {{ tautan.surat_ukur }}{% endif %}</span>
+      <button type="button" class="tombol kecil kedua lepas-tautan">Lepas</button>
+    {% endif %}
+  </div>
+
+  <div class="bidang-isian">
+    <label>Cari bidang pengganti</label>
+    <input type="search" class="cari-tautan lebar-penuh" autocomplete="off"
+           placeholder="ketik nomor hak / NIB / nama pemilik — minimal 3 huruf">
+  </div>
+  <div class="hasil-tautan" hidden></div>
+
+  <div class="bidang-isian" style="margin-top:10px">
+    <label>Catatan tautan</label>
+    <input type="text" name="tautan_catatan" class="lebar-penuh" value="{{ catatan or '' }}"
+           placeholder="mis. nomor hak baru sesudah penggantian desa">
+  </div>
+</div>
+{% endmacro %}
+
+{% macro skrip() %}
+<script>
+(function () {
+  function sel(tag, kelas, teks) {
+    var e = document.createElement(tag);
+    e.className = kelas;
+    e.textContent = teks;
+    return e;
+  }
+
+  document.querySelectorAll('.pilih-tautan').forEach(function (kotak) {
+    var simpan   = kotak.querySelector('input[name="tautan_id"]');
+    var terpilih = kotak.querySelector('.tautan-terpilih');
+    var cari     = kotak.querySelector('.cari-tautan');
+    var hasil    = kotak.querySelector('.hasil-tautan');
+    var kecuali  = kotak.dataset.kecuali || '';
+    var jeda     = null;
+
+    function lepas() {
+      simpan.value = '';
+      terpilih.innerHTML = '';
+      terpilih.hidden = true;
+    }
+
+    function pasang(b) {
+      simpan.value = b.id;
+      terpilih.innerHTML = '';
+      var a = document.createElement('a');
+      a.href = '/bidang/' + b.id;
+      a.className = 'mono';
+      a.textContent = b.nomor_hak;
+      var ket = document.createElement('span');
+      ket.className = 'kecil redup';
+      ket.textContent = b.nama_hak + ' · ' + b.nama_desa + ', Kec. ' + b.nama_kecamatan
+                      + (b.surat_ukur ? ' · SU ' + b.surat_ukur : '');
+      var tombol = document.createElement('button');
+      tombol.type = 'button';
+      tombol.className = 'tombol kecil kedua lepas-tautan';
+      tombol.textContent = 'Lepas';
+      terpilih.appendChild(a);
+      terpilih.appendChild(ket);
+      terpilih.appendChild(tombol);
+      terpilih.hidden = false;
+      hasil.hidden = true;
+      hasil.innerHTML = '';
+      cari.value = '';
+    }
+
+    terpilih.addEventListener('click', function (e) {
+      if (e.target.classList.contains('lepas-tautan')) { lepas(); }
+    });
+
+    function tampilkan(daftar) {
+      hasil.innerHTML = '';
+      if (!daftar.length) {
+        hasil.innerHTML = '<div class="kosong kecil">Tidak ada bidang yang cocok.</div>';
+        hasil.hidden = false;
+        return;
+      }
+      daftar.forEach(function (b) {
+        var baris = document.createElement('button');
+        baris.type = 'button';
+        baris.className = 'baris-tautan';
+        // isi sel dibuat lewat textContent, bukan innerHTML: nama pemilik dari
+        // berkas KKP tidak selalu bersih dan tidak boleh ikut jadi markup
+        baris.appendChild(sel('span', 'mono', b.nomor_hak));
+        baris.appendChild(sel('span', 'kecil redup',
+          b.nama_hak + ' · ' + b.nama_desa + ', Kec. ' + b.nama_kecamatan
+          + (b.pemilik_akhir ? ' · ' + b.pemilik_akhir : '')));
+        if (b.tambahan) { baris.appendChild(sel('span', 'tanda ungu', 'Tambahan')); }
+        baris.addEventListener('click', function () { pasang(b); });
+        hasil.appendChild(baris);
+      });
+      hasil.hidden = false;
+    }
+
+    cari.addEventListener('input', function () {
+      var q = cari.value.trim();
+      clearTimeout(jeda);
+      if (q.length < 3) { hasil.hidden = true; hasil.innerHTML = ''; return; }
+      jeda = setTimeout(function () {
+        fetch('/bidang/cari.json?q=' + encodeURIComponent(q)
+              + (kecuali ? '&kecuali=' + encodeURIComponent(kecuali) : ''))
+          .then(function (r) { return r.json(); })
+          .then(tampilkan)
+          .catch(function () {
+            hasil.innerHTML = '<div class="kosong kecil">Pencarian gagal, coba lagi.</div>';
+            hasil.hidden = false;
+          });
+      }, 250);
+    });
+
+    // Enter di kotak pencarian jangan ikut mengirim borang
+    cari.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') { e.preventDefault(); }
+    });
+  });
+})();
+</script>
+{% endmacro %}

@@ -6,6 +6,7 @@ unggahan/
 *.xlsx
 *.csv
 
+
 # kredensial AWS
 *.pem
 kepercayaan.json

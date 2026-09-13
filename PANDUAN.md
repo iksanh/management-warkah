@@ -65,7 +65,7 @@ namanya tetap tersimpan.
 | Menu | Kegunaan |
 |---|---|
 | **Beranda** | Ringkasan koleksi, kualitas data (KW), peminjaman lewat jatuh tempo, aktivitas terakhir |
-| **Katalog** | Cari bidang dan lihat lokasi fisik warkahnya. Saring per kecamatan, desa, jenis hak, KW, ketersediaan, status pemeriksaan, petugas pemeriksa, dan status residu |
+| **Katalog** | Cari bidang dan lihat lokasi fisik warkahnya. Saring per kecamatan, desa, jenis hak, KW, ketersediaan, status pemeriksaan, petugas pemeriksa, status residu, dan asal data. Dari sini pula bidang yang tidak terbawa tarikan KKP dimasukkan sendiri lewat tombol **+ Bidang** |
 | **Sirkulasi** | Daftar warkah yang sedang keluar, yang lewat jatuh tempo, dan riwayat pengembalian |
 | **Monitoring** | Rekap capaian per kecamatan dan per petugas; penugasan desa ke petugas |
 | **Rekap** | Jumlah bidang terinput per desa per kecamatan menurut kode, lengkap dengan pecahan KW, untuk dicocokkan dengan tarikan KKP |
@@ -258,6 +258,64 @@ Aturan yang berlaku:
   centang ini menautkannya — tidak membuat baris kembar.
 - Saringan **Residu** di bilah pencarian memisahkan bidang yang sudah tercatat residu
   dari yang bukan.
+
+### Menambah bidang yang tidak ada di tarikan KKP
+
+Ada buku tanah dan surat ukur yang **ada secara fisik di rak tetapi tidak ketemu di
+Katalog**. Umumnya karena desanya diganti atau dimekarkan: nomor hak lamanya sudah tidak
+aktif di KKP sehingga tidak ikut terbawa berkas tarikan, sedangkan di KKP sudah terbit
+**nomor hak baru yang tercatat di desa lain**. Bidang seperti ini dimasukkan sendiri
+lewat tombol **+ Bidang** di bilah pencarian Katalog.
+
+Isian borangnya sama persis dengan kolom data bidang yang sudah ada — surat ukur, NIB,
+luas, produk, luas peta, validator, blokir internal, KW, pemilik pertama dan terakhir —
+ditambah tiga hal khusus:
+
+| Isian | Gunanya |
+|---|---|
+| **Sebab dimasukkan sendiri** | Penanda kenapa bidang ini tidak ada di tarikan KKP: Penggantian/Pemekaran Desa, Nomor Hak Tidak Aktif Lagi, Tidak Terbawa Tarikan KKP, Hak Mati/Dihapus, Data KKP Belum Diperbaiki, atau Lainnya |
+| **Catatan bidang** | Catatan bebas milik bidang itu sendiri, mis. letak fisik berkasnya dan sejak kapan nomor haknya tidak aktif |
+| **Tautan ke bidang yang kode haknya masih aktif** | Nomor hak baru penggantinya, dicari langsung dari seluruh katalog, berikut **catatan tautan** |
+
+Cara mengisi nomor hak: pilih **kecamatan** lalu **desa**, dan awalan nomor hak
+(mis. `18.04.01.01.1.`) terisi sendiri — cukup ketik nomor urutnya, mis. `123`, yang
+dilengkapi menjadi `18.04.01.01.1.00123`. Nomor berformat lain tetap boleh diketik penuh.
+Nomor hak yang sudah ada di desa yang sama ditolak, lengkap dengan tautan untuk membuka
+bidang yang sudah tercatat itu.
+
+Sesudah tersimpan:
+
+- Bidangnya ditandai **Tambahan** di Katalog — dengan penanda dan catatannya muncul saat
+  penunjuk diarahkan ke tanda itu — dan bila punya tautan, ada pintasan **› hak aktif**
+  di sebelah nomor haknya.
+- Baris **nomor hak aktif** yang dipakai sebagai pengganti ikut ditandai di Katalog dengan
+  **‹ hak lama** (atau **‹ 2 hak lama**, dan seterusnya, bila ditaut lebih dari satu).
+  Penunjuk yang diarahkan ke tanda itu menampilkan daftar nomor hak lamanya; diklik akan
+  membuka nomor hak lama tersebut bila hanya satu, atau bidangnya sendiri bila lebih dari satu.
+  Jadi kaitannya terbaca langsung dari daftar, tanpa harus membuka detailnya.
+- Halaman detailnya membuka kartu **Bidang tambahan**: penanda, catatan, tautan ke nomor
+  hak yang masih aktif, catatan tautan, serta siapa yang mencatat dan kapan.
+- Halaman detail **bidang yang ditautkan** menampilkan kartu **Ditaut dari bidang
+  tambahan**, berisi daftar nomor hak lama yang menunjuk kepadanya — jadi tautannya
+  terbaca dari dua arah.
+- Bidangnya bekerja seperti bidang lain: bisa diperiksa (BT/SU/warkah), diisi lokasi
+  simpan, dipinjam, dan ditandai residu.
+
+Aturan yang berlaku:
+
+- Semua pengguna yang sudah masuk boleh menambah bidang; namanya tercatat sebagai pembuat.
+- Karena datanya diketik sendiri, **hanya bidang tambahan yang boleh disunting** dari
+  halaman detail, lewat kartu *Data bidang tambahan* di bagian bawah. Data bidang hasil
+  tarikan KKP tetap tidak bisa diubah dari aplikasi.
+- Menghapus bidang tambahan hanya bisa dilakukan **Admin**, dan ditolak bila bidangnya
+  sudah punya riwayat peminjaman atau tercatat sebagai residu.
+- Saringan **Asal data** di Katalog memisahkan bidang tambahan dari bidang hasil tarikan
+  KKP, dan pilihan **Hak aktif yang ditaut** menampilkan nomor hak aktif yang menjadi
+  pengganti bagi satu atau lebih nomor hak lama.
+- Impor berkas KKP dengan mode *Ganti isi desa* **tidak pernah membuang bidang tambahan**
+  maupun bidang yang dipakai sebagai tautannya, meski nomor haknya tidak ada di berkas.
+- Bidang tambahan ikut terhitung di **Rekap**, jadi selisih terhadap angka KKP per desa
+  wajar bertambah sebanyak bidang yang dimasukkan sendiri.
 
 ## Membuka dari ponsel
 

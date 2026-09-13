@@ -1,0 +1,221 @@
+{% extends "dasar.html" %}
+{% import "bagian_tautan.html" as tautan_bagian %}
+{% block judul %}Tambah bidang — Aplikasi Warkah{% endblock %}
+{% block isi %}
+
+<p class="kecil"><a href="/katalog">‹ Kembali ke katalog</a></p>
+<h1>Tambah bidang</h1>
+<p class="jelas">
+  Untuk buku tanah dan surat ukur yang ada secara fisik tetapi tidak ikut terbawa
+  berkas tarikan KKP — misalnya karena penggantian desa, sehingga nomor haknya
+  tidak aktif lagi dan di KKP terbit nomor hak baru di desa yang lain.
+  Bidang yang dimasukkan di sini ditandai <span class="tanda ungu">Tambahan</span>
+  di katalog dan boleh ditautkan ke bidang penggantinya.
+</p>
+
+{% if galat %}
+  <div class="pesan awas">
+    {{ galat }}
+    {% if bentrok %}
+      <a href="/bidang/{{ bentrok.id }}" class="tombol kecil kedua" style="margin-left:8px">
+        Buka bidang yang sudah ada
+      </a>
+    {% endif %}
+  </div>
+{% endif %}
+
+<form method="post" action="/bidang/tambah">
+  <div class="kartu">
+    <div class="grup-judul ungu">Letak &amp; nomor hak</div>
+    <div class="baris-borang">
+      <div class="bidang-isian">
+        <label for="kecamatan">Kecamatan</label>
+        <select id="kecamatan">
+          <option value="">— pilih kecamatan —</option>
+          {% for k in kecamatan %}
+            <option value="{{ k.nama_kecamatan }}">{{ k.nama_kecamatan }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="bidang-isian">
+        <label for="wilayah_id">Desa *</label>
+        <select id="wilayah_id" name="wilayah_id" required>
+          <option value="">— pilih desa —</option>
+          {% for d in desa %}
+            <option value="{{ d.id }}" data-kode="{{ d.kode_desa }}"
+                    {{ 'selected' if nilai.get('wilayah_id') == d.id | string }}>
+              {{ d.nama_desa }} ({{ d.nama_kecamatan }})
+            </option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="bidang-isian">
+        <label for="jenis_hak">Jenis hak *</label>
+        <select id="jenis_hak" name="jenis_hak" required>
+          {% for h in daftar_hak %}
+            <option value="{{ h.kode }}"
+                    {{ 'selected' if (nilai.get('jenis_hak') or 'BT1') == h.kode }}>{{ h.nama }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="bidang-isian isian-lebar">
+        <label for="nomor_hak">Nomor hak *</label>
+        <input type="text" id="nomor_hak" name="nomor_hak" required class="mono"
+               value="{{ nilai.get('nomor_hak') or '' }}" placeholder="18.04.01.01.1.00123">
+        <span class="kecil redup" id="petunjuk-nomor">
+          Awalannya terisi sendiri sesudah desa dipilih — cukup ketik nomor urutnya.
+        </span>
+      </div>
+    </div>
+
+    <div class="grup-judul hijau">Data bidang</div>
+    <div class="baris-borang">
+      <div class="bidang-isian"><label for="surat_ukur">Surat ukur</label>
+        <input type="text" id="surat_ukur" name="surat_ukur" value="{{ nilai.get('surat_ukur') or '' }}"
+               placeholder="mis. SU.00445/1991"></div>
+      <div class="bidang-isian"><label for="nib">NIB</label>
+        <input type="text" id="nib" name="nib" class="mono" value="{{ nilai.get('nib') or '' }}"></div>
+      <div class="bidang-isian"><label for="luas">Luas (m²)</label>
+        <input type="text" id="luas" name="luas" inputmode="numeric" value="{{ nilai.get('luas') or '' }}"></div>
+      <div class="bidang-isian"><label for="produk">Produk</label>
+        <input type="text" id="produk" name="produk" value="{{ nilai.get('produk') or '' }}"
+               placeholder="mis. Entry Data"></div>
+      <div class="bidang-isian"><label for="luas_peta">Luas peta</label>
+        <input type="text" id="luas_peta" name="luas_peta" value="{{ nilai.get('luas_peta') or '' }}"></div>
+      <div class="bidang-isian"><label for="kw">KW</label>
+        <select id="kw" name="kw">
+          <option value="">—</option>
+          {% for k in ['KW1','KW2','KW3','KW4','KW5','KW6'] %}
+            <option value="{{ k }}" {{ 'selected' if nilai.get('kw') == k }}>{{ k }}</option>
+          {% endfor %}
+        </select></div>
+      <div class="bidang-isian"><label for="validator_tekstual">Validator tekstual</label>
+        <input type="text" id="validator_tekstual" name="validator_tekstual"
+               value="{{ nilai.get('validator_tekstual') or '' }}"></div>
+      <div class="bidang-isian"><label for="validator_peta">Validator peta</label>
+        <input type="text" id="validator_peta" name="validator_peta"
+               value="{{ nilai.get('validator_peta') or '' }}"></div>
+      <div class="bidang-isian"><label for="blokir_internal">Blokir internal</label>
+        <input type="text" id="blokir_internal" name="blokir_internal"
+               value="{{ nilai.get('blokir_internal') or '' }}"></div>
+      <div class="bidang-isian"><label for="pemilik_pertama">Pemilik pertama</label>
+        <input type="text" id="pemilik_pertama" name="pemilik_pertama"
+               value="{{ nilai.get('pemilik_pertama') or '' }}"></div>
+      <div class="bidang-isian"><label for="pemilik_akhir">Pemilik terakhir</label>
+        <input type="text" id="pemilik_akhir" name="pemilik_akhir"
+               value="{{ nilai.get('pemilik_akhir') or '' }}"></div>
+    </div>
+
+    <div class="grup-judul oranye">Penanda &amp; catatan</div>
+    <div class="baris-borang">
+      <div class="bidang-isian" style="max-width:320px">
+        <label for="alasan">Sebab dimasukkan sendiri</label>
+        <select id="alasan" name="alasan">
+          <option value="">—</option>
+          {% for a in pilihan.alasan_tambahan %}
+            <option value="{{ a }}"
+                    {{ 'selected' if (nilai.get('alasan') or pilihan.alasan_tambahan[0]) == a }}>{{ a }}</option>
+          {% endfor %}
+        </select>
+      </div>
+    </div>
+    <div class="bidang-isian" style="margin-bottom:14px">
+      <label for="catatan">Catatan bidang</label>
+      <textarea id="catatan" name="catatan" class="lebar-penuh"
+                placeholder="mis. BT & SU ada di box 12, nomor hak tidak aktif di KKP sejak pemekaran Desa …">{{ nilai.get('catatan') or '' }}</textarea>
+    </div>
+
+    <div class="grup-judul">Tautan ke bidang yang kode haknya masih aktif</div>
+    <p class="kecil redup" style="margin-top:0">
+      Opsional. Isi bila nomor hak lama ini sudah diganti nomor hak baru yang masih
+      aktif di desa lain, supaya kedua bidang saling tertaut di halaman detailnya.
+    </p>
+    {{ tautan_bagian.kotak(tautan, nilai.get('tautan_catatan')) }}
+
+    <div style="margin-top:18px">
+      <button type="submit" class="hijau">Simpan bidang</button>
+      <a href="/katalog" class="tombol kedua" style="margin-left:8px">Batal</a>
+    </div>
+  </div>
+</form>
+
+{# daftar desa lengkap, dipakai menyusun ulang pilihan saat kecamatan diganti #}
+<script id="data-desa" type="application/json">{{ desa | tojson }}</script>
+<script>
+(function () {
+  var semuaDesa = JSON.parse(document.getElementById('data-desa').textContent);
+  var pilihKec  = document.getElementById('kecamatan');
+  var pilihDesa = document.getElementById('wilayah_id');
+  var pilihHak  = document.getElementById('jenis_hak');
+  var nomor     = document.getElementById('nomor_hak');
+  var petunjuk  = document.getElementById('petunjuk-nomor');
+  var awalanLama = '';
+
+  // Pilihan desa disusun ulang mengikuti kecamatan yang dipilih -- bukan sekadar
+  // disembunyikan, karena opsi yang hidden masih bisa terpilih lewat ketikan.
+  // Desa yang sudah dipilih dipertahankan selama masih ada di kecamatan itu.
+  function susunDesa() {
+    var kec = pilihKec.value;
+    var sebelumnya = pilihDesa.value;
+    var cocok = semuaDesa.filter(function (d) {
+      return !kec || d.nama_kecamatan === kec;
+    });
+
+    pilihDesa.innerHTML = '';
+    var kosong = document.createElement('option');
+    kosong.value = '';
+    kosong.textContent = '— pilih desa —';
+    pilihDesa.appendChild(kosong);
+
+    cocok.forEach(function (d) {
+      var o = document.createElement('option');
+      o.value = String(d.id);
+      o.dataset.kode = d.kode_desa;
+      o.textContent = d.nama_desa + ' (' + d.nama_kecamatan + ')';
+      pilihDesa.appendChild(o);
+    });
+
+    var masihAda = cocok.some(function (d) { return String(d.id) === sebelumnya; });
+    pilihDesa.value = masihAda ? sebelumnya : '';
+    aturAwalan();
+  }
+
+  function awalanHak() {
+    var o = pilihDesa.selectedOptions[0];
+    var kode = o ? (o.dataset.kode || '') : '';
+    var angka = (pilihHak.value || '').replace(/\D/g, '');
+    if (kode.length !== 8 || !angka) { return ''; }
+    return kode.slice(0, 2) + '.' + kode.slice(2, 4) + '.' + kode.slice(4, 6) + '.'
+         + kode.slice(6, 8) + '.' + angka + '.';
+  }
+
+  function aturAwalan() {
+    var awalan = awalanHak();
+    if (!awalan) {
+      petunjuk.textContent = 'Awalannya terisi sendiri sesudah desa dipilih — cukup ketik nomor urutnya.';
+      awalanLama = '';
+      return;
+    }
+    petunjuk.textContent = 'Awalan desa ini: ' + awalan + ' — cukup ketik nomor urutnya, mis. '
+                         + awalan + '00123.';
+    var isi = nomor.value.trim();
+    if (!isi || (awalanLama && isi.indexOf(awalanLama) === 0)) {
+      nomor.value = awalan + (awalanLama ? isi.slice(awalanLama.length) : '');
+    }
+    awalanLama = awalan;
+    nomor.placeholder = awalan + '00123';
+  }
+
+  pilihKec.addEventListener('change', susunDesa);
+  pilihDesa.addEventListener('change', aturAwalan);
+  pilihHak.addEventListener('change', aturAwalan);
+
+  // borang yang tampil lagi karena ada kesalahan: samakan kecamatan dengan desanya
+  var awal = semuaDesa.filter(function (d) { return String(d.id) === pilihDesa.value; })[0];
+  if (awal) { pilihKec.value = awal.nama_kecamatan; }
+  susunDesa();
+})();
+</script>
+{{ tautan_bagian.skrip() }}
+
+{% endblock %}

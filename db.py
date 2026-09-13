@@ -221,6 +221,26 @@ CREATE INDEX IF NOT EXISTS ix_residu_status  ON residu (status);
 CREATE INDEX IF NOT EXISTS ix_residu_serah   ON residu (sudah_diserahkan);
 -- ix_residu_blanko dibuat di migrasi(), sesudah kolomnya dipastikan ada
 
+-- bidang yang dimasukkan sendiri lewat aplikasi, bukan dari tarikan KKP.
+-- Buku tanah dan surat ukurnya ada secara fisik, tetapi nomor haknya sudah
+-- tidak aktif di KKP -- umumnya karena penggantian/pemekaran desa, sehingga di
+-- KKP terbit nomor hak baru yang tercatat di desa lain. Barisnya tetap memakai
+-- tabel bidang supaya bisa diperiksa, disimpan lokasinya, dan dipinjam seperti
+-- biasa; tabel ini yang menyimpan penanda, catatan, dan tautan ke bidang
+-- pengganti yang kode haknya masih aktif.
+CREATE TABLE IF NOT EXISTS bidang_tambahan (
+    bidang_id       INTEGER PRIMARY KEY REFERENCES bidang (id),
+    alasan          TEXT,
+    catatan         TEXT,
+    tautan_id       INTEGER REFERENCES bidang (id),
+    tautan_catatan  TEXT,
+    dibuat_oleh     TEXT,
+    dibuat_pada     TEXT,
+    diubah_oleh     TEXT,
+    diubah_pada     TEXT
+);
+CREATE INDEX IF NOT EXISTS ix_tambahan_tautan ON bidang_tambahan (tautan_id);
+
 -- catatan aktivitas ringkas
 CREATE TABLE IF NOT EXISTS log_aktivitas (
     id        INTEGER PRIMARY KEY,
@@ -252,6 +272,11 @@ PILIHAN = {
     "tindak_lanjut_residu": ["Belum Ditentukan", "Panggil Pemohon", "Lengkapi Berkas",
                              "Perbaikan Data", "Ukur/Peta Ulang", "Koordinasi Desa",
                              "Serahkan Lewat Desa", "Ke Seksi Sengketa"],
+    # sebab satu bidang harus dimasukkan sendiri karena tidak ikut terbawa
+    # berkas tarikan KKP; dipakai sebagai penanda di katalog
+    "alasan_tambahan": ["Penggantian/Pemekaran Desa", "Nomor Hak Tidak Aktif Lagi",
+                        "Tidak Terbawa Tarikan KKP", "Hak Mati/Dihapus",
+                        "Data KKP Belum Diperbaiki", "Lainnya"],
 }
 
 
@@ -329,7 +354,7 @@ if __name__ == "__main__":
           "(dari WARKAH_DB)" if os.environ.get("WARKAH_DB") else "(bawaan)")
     for t in ("wilayah", "bidang", "penyimpanan", "pemeriksaan", "peminjaman",
               "penugasan", "petugas", "jenis_hak", "rekap_kkp", "residu",
-              "tipologi"):
+              "tipologi", "bidang_tambahan"):
         n = kon.execute("SELECT COUNT(*) FROM %s" % t).fetchone()[0]
         print("  %-14s %8d baris" % (t, n))
     kon.close()

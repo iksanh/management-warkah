@@ -299,7 +299,10 @@ def buang_sisa(kon, lama, isi):
 
     Bidang yang sudah punya catatan kerja (penyimpanan, pemeriksaan,
     peminjaman, atau residu) tidak pernah dihapus supaya hasil inventarisasi
-    tidak ikut hilang; jumlahnya dilaporkan sebagai "ditahan".
+    tidak ikut hilang; jumlahnya dilaporkan sebagai "ditahan". Begitu pula
+    bidang tambahan -- yang dimasukkan sendiri lewat aplikasi justru karena
+    tidak ada di berkas tarikan KKP -- berikut bidang yang dijadikan tautan
+    "nomor hak aktif" olehnya.
     """
     sisa = []
     for kunci, daftar in lama.items():
@@ -308,11 +311,16 @@ def buang_sisa(kon, lama, isi):
     if not sisa:
         return 0, 0
     dipakai = set()
-    for tabel in ("penyimpanan", "pemeriksaan", "peminjaman", "residu"):
+    for tabel in ("penyimpanan", "pemeriksaan", "peminjaman", "residu",
+                  "bidang_tambahan"):
         for potong in (sisa[i:i + 400] for i in range(0, len(sisa), 400)):
             dipakai.update(r[0] for r in kon.execute(
                 "SELECT bidang_id FROM %s WHERE bidang_id IN (%s)"
                 % (tabel, ",".join("?" * len(potong))), potong))
+    for potong in (sisa[i:i + 400] for i in range(0, len(sisa), 400)):
+        dipakai.update(r[0] for r in kon.execute(
+            "SELECT tautan_id FROM bidang_tambahan WHERE tautan_id IN (%s)"
+            % ",".join("?" * len(potong)), potong))
     aman = [i for i in sisa if i not in dipakai]
     for potong in (aman[i:i + 400] for i in range(0, len(aman), 400)):
         kon.execute("DELETE FROM bidang WHERE id IN (%s)"
