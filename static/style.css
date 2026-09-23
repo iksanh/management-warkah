@@ -384,21 +384,71 @@ input.isian-catatan { width: 160px; padding: 4px 6px; font-size: 12px; }
 .baris-tautan:last-child { border-bottom: 0; }
 .baris-tautan:hover { background: var(--biru-muda); filter: none; }
 
-/* ------------------------------------------------- panel Ubah di residu */
-/* panel dibuka-tutup dengan menggerakkan tinggi barisnya: pembungkus luar
-   memakai grid 0fr -> 1fr, yang dalam memotong isi yang belum muat */
-tr.baris-rinci > td { padding: 0; }
-.bungkus-rinci {
-  display: grid;
-  grid-template-rows: 0fr;
-  opacity: .4;
-  transition: grid-template-rows .24s ease, opacity .24s ease;
+/* ------------------------------------------------- dialog Ubah di residu */
+/* satu dialog per baris residu; kepala dan kaki menempel, isinya yang bergulir */
+.modal-rinci {
+  width: min(960px, 94vw);
+  max-height: 88vh;
+  padding: 0;
+  border: 1px solid var(--garis);
+  border-radius: 10px;
+  background: var(--kartu);
+  color: var(--teks);
+  box-shadow: 0 18px 44px rgba(16, 32, 48, .28);
+  opacity: 0;
+  transform: translateY(10px) scale(.99);
+  transition: opacity .18s ease, transform .18s ease;
 }
-.bungkus-rinci.terbuka { grid-template-rows: 1fr; opacity: 1; }
-.isi-rinci { overflow: hidden; min-height: 0; }
-.borang-residu { padding: 14px 12px; }
+.modal-rinci.tampil { opacity: 1; transform: none; }
+.modal-rinci::backdrop { background: rgba(14, 28, 42, .5); }
+.modal-rinci .borang-residu { display: flex; flex-direction: column; max-height: 88vh; }
+body.modal-terbuka { overflow: hidden; }
 
-.baris-tombol { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.kepala-modal {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--garis);
+  background: var(--biru-muda);
+  border-radius: 10px 10px 0 0;
+}
+.kepala-modal h2 { margin: 0; font-size: 15px; }
+.kepala-modal p { margin: 3px 0 0; }
+.tutup-modal {
+  margin-left: auto;
+  flex: 0 0 auto;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  font-size: 20px;
+  line-height: 1;
+  color: var(--redup);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.tutup-modal:hover { background: #fff; color: var(--teks); border-color: var(--garis); }
+/* tombol Batal di kaki dialog memakai kelas yang sama, tetapi bentuknya tombol biasa */
+.kaki-modal .tutup-modal {
+  margin-left: 0;
+  width: auto;
+  height: auto;
+  font-size: 13px;
+}
+
+.badan-modal { padding: 16px 18px; overflow-y: auto; }
+.kaki-modal {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 12px 18px;
+  border-top: 1px solid var(--garis);
+  background: #fbfcfd;
+  border-radius: 0 0 10px 10px;
+}
 .kabar-simpan { font-size: 12px; font-weight: 600; }
 .kabar-simpan.sedang { color: var(--redup); }
 .kabar-simpan.berhasil { color: var(--hijau); }
@@ -412,7 +462,7 @@ tr.baris-rinci > td { padding: 0; }
 tr.baris-tersimpan > td { animation: sorot-simpan 2s ease-out; }
 
 @media (prefers-reduced-motion: reduce) {
-  .bungkus-rinci { transition: none; }
+  .modal-rinci { transition: none; }
   tr.baris-tersimpan > td { animation: none; background: #eef7ef; }
 }
 
@@ -571,13 +621,26 @@ tr.baris-tersimpan > td { animation: sorot-simpan 2s ease-out; }
   #tabel-residu tbody tr.baris-data td:nth-child(10),
   #tabel-residu tbody tr.baris-data td:nth-child(11) { white-space: normal; }
   #tabel-residu tbody tr.baris-data td:nth-child(11) .tanda { margin-bottom: 2px; }
-
-  /* baris rincian tidak ikut dipatok lebarnya: isinya borang, bukan sel data */
-  #tabel-residu tbody tr.baris-rinci td { width: auto; white-space: normal; }
 }
 
 /* --- ponsel --- */
 @media (max-width: 600px) {
+  /* dialog Ubah dibuat selebar layar supaya isiannya tidak berdesakan */
+  .modal-rinci {
+    width: 100vw;
+    max-width: 100vw;
+    max-height: 100vh;
+    height: 100vh;
+    margin: 0;
+    border: 0;
+    border-radius: 0;
+  }
+  .modal-rinci .borang-residu { max-height: 100vh; height: 100vh; }
+  .kepala-modal, .kaki-modal { border-radius: 0; }
+  .kepala-modal, .badan-modal, .kaki-modal { padding-left: 12px; padding-right: 12px; }
+  .kaki-modal button[type=submit] { flex: 1 1 auto; padding: 12px; font-size: 15px; }
+  .kabar-simpan { flex: 1 1 100%; }
+
   /* satu lajur saja, dan sasaran ketuknya diperbesar */
   .catatan-cepat { padding: 10px; }
   .grup-catatan { grid-template-columns: 1fr; }
@@ -799,12 +862,9 @@ tr.baris-tersimpan > td { animation: sorot-simpan 2s ease-out; }
   #tabel-residu tbody tr.baris-data.baris-diubah td:first-child { box-shadow: none; }
   #tabel-residu tbody tr.baris-data.baris-diubah { box-shadow: inset 3px 0 0 var(--oranye); }
 
-  /* baris rincian & baris kosong: biarkan mengalir, jangan ikut jadi kisi */
+  /* baris "belum ada data": biarkan mengalir, jangan ikut jadi kisi */
   #tabel-residu tbody tr:not(.baris-data) { display: block; }
   #tabel-residu tbody tr:not(.baris-data) td { display: block; width: auto; }
-  /* baris rincian disembunyikan lewat atribut hidden; display:block di atas
-     mengalahkannya, jadi ditegaskan lagi di sini */
-  #tabel-residu tbody tr.baris-rinci[hidden] { display: none; }
 
   .tab a { padding: 8px 12px; font-size: 12px; }
   .halaman { padding: 10px; gap: 6px; }

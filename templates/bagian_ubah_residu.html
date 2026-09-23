@@ -1,0 +1,168 @@
+{# Dialog "Ubah" untuk satu baris residu. Ditaruh di luar tabel karena
+   <dialog> tidak sah berada di dalam <tr>, lalu dibuka lewat tombol Ubah
+   pada barisnya. Isinya sama persis dengan panel yang dulu melebar di
+   bawah baris. #}
+<dialog class="modal-rinci" id="rinci-{{ r.id }}" data-id="{{ r.id }}"
+        aria-labelledby="judul-rinci-{{ r.id }}">
+  <form method="post" action="/residu/{{ r.id }}/simpan"
+        class="borang-residu" data-id="{{ r.id }}">
+    <input type="hidden" name="kembali_ke" value="{{ kembali_ke }}">
+
+    <div class="kepala-modal">
+      <div>
+        <h2 id="judul-rinci-{{ r.id }}">{{ r.nomor_hak or r.nomor_hak_asli or 'Residu' }}</h2>
+        <p class="kecil redup">
+          {{ r.nama_pemegang or 'tanpa nama pemegang' }} ·
+          {{ r.nama_desa or r.desa_teks or '—' }}
+          {{ '(' ~ (r.nama_kecamatan or r.kecamatan_teks) ~ ')' if r.nama_kecamatan or r.kecamatan_teks }}
+          {{ '· ' ~ r.tahun if r.tahun }}
+        </p>
+      </div>
+      <button type="button" class="tutup-modal" aria-label="Tutup">&times;</button>
+    </div>
+
+    <div class="badan-modal">
+              <div class="kisi k2">
+                <div>
+                  <dl class="rincian">
+                    <dt>Nomor hak asli</dt><dd class="mono">{{ r.nomor_hak_asli or '—' }}</dd>
+                    <dt>Surat ukur</dt><dd>{{ r.surat_ukur or '—' }}</dd>
+                    <dt>NIB</dt><dd class="mono">{{ r.nib or '—' }}</dd>
+                    <dt>Pemilik di KKP</dt><dd>{{ r.pemilik_akhir or '—' }}</dd>
+                    <dt>Lokasi warkah</dt>
+                    <dd>
+                      {% set lok = [r.ruang, r.lemari, r.rak, r.box] | select | list %}
+                      {% if lok %}<span class="tanda ungu">{{ lok | join(' / ') }}</span>
+                      {% else %}<span class="redup">belum diisi</span>{% endif %}
+                    </dd>
+                    <dt>Keterangan berkas</dt><dd>{{ r.keterangan or '—' }}</dd>
+                    <dt>Blanko</dt>
+                    <dd>
+                      {% if r.blanko_ada == 'Ada' %}<span class="tanda hijau">Ada</span>
+                      {% elif r.blanko_ada %}<span class="tanda merah">{{ r.blanko_ada }}</span>
+                      {% else %}<span class="tanda abu">Belum dicek</span>{% endif %}
+                      {% if r.blanko_tanggal %}
+                        <span class="kecil redup">
+                          {{ r.blanko_tanggal }}{{ ' · ' ~ r.blanko_petugas if r.blanko_petugas }}{{ ' · ' ~ r.blanko_tempat if r.blanko_tempat }}
+                        </span>
+                      {% endif %}
+                    </dd>
+                    <dt>Terakhir diubah</dt>
+                    <dd class="kecil redup sel-diubah">
+                      {{ (r.diubah_pada ~ ' oleh ' ~ (r.diubah_oleh or '-')) if r.diubah_pada else 'belum pernah' }}
+                    </dd>
+                  </dl>
+                </div>
+                <div>
+                  <div class="baris-borang">
+                    <div class="bidang-isian">
+                      <label for="status-{{ r.id }}">Status</label>
+                      <select id="status-{{ r.id }}" name="status">
+                        <option value="">—</option>
+                        {% for s in pilihan.status_residu %}
+                          <option value="{{ s }}" {{ 'selected' if r.status == s }}>{{ s }}</option>
+                        {% endfor %}
+                      </select>
+                    </div>
+                    <div class="bidang-isian">
+                      <label for="tl-{{ r.id }}">Tindak lanjut</label>
+                      <select id="tl-{{ r.id }}" name="tindak_lanjut">
+                        <option value="">—</option>
+                        {% for s in pilihan.tindak_lanjut_residu %}
+                          <option value="{{ s }}" {{ 'selected' if r.tindak_lanjut == s }}>{{ s }}</option>
+                        {% endfor %}
+                      </select>
+                    </div>
+                    <div class="bidang-isian">
+                      <label for="pt-{{ r.id }}">Petugas</label>
+                      {% if admin %}
+                        <select id="pt-{{ r.id }}" name="petugas">
+                          <option value="">—</option>
+                          {% for p in daftar_petugas %}
+                            <option value="{{ p.nama }}" {{ 'selected' if r.petugas == p.nama }}>{{ p.nama }}</option>
+                          {% endfor %}
+                        </select>
+                      {% else %}
+                        <input type="text" id="pt-{{ r.id }}" value="{{ petugas_aktif }}"
+                               readonly class="terkunci">
+                      {% endif %}
+                    </div>
+                  </div>
+                  <div class="baris-borang">
+                    <div class="bidang-isian">
+                      <label for="tgl-{{ r.id }}">Tanggal serah</label>
+                      <input type="date" id="tgl-{{ r.id }}" name="tanggal_serah"
+                             value="{{ r.tanggal_serah or '' }}">
+                    </div>
+                    <div class="bidang-isian">
+                      <label for="pn-{{ r.id }}">Penerima</label>
+                      <input type="text" id="pn-{{ r.id }}" name="penerima"
+                             value="{{ r.penerima or '' }}" placeholder="nama penerima">
+                    </div>
+                  </div>
+                  {% set dipilih = (r.catatan_kode or '').split(',') | select | list %}
+                  <div class="bidang-isian isian-lebar">
+                    <label for="ct-{{ r.id }}">Catatan</label>
+                    <div class="catatan-cepat" data-baris="{{ r.id }}">
+                      <div class="catatan-kepala">
+                        <span class="kecil redup">
+                          Centang catatan yang sesuai
+                          (<span class="jml-catatan">{{ dipilih | length }}</span> dipilih),
+                          lalu tambahkan keterangan bila perlu.
+                        </span>
+                        <button type="button" class="tombol kecil kedua semua-catatan">
+                          Tampilkan semua kelompok
+                        </button>
+                      </div>
+                      {% for kel, daftar in grup_catatan %}
+                        <fieldset class="grup-catatan" data-kelompok="{{ kel }}">
+                          <legend>{{ kel }}</legend>
+                          {% for c in daftar %}
+                            <label class="pilih-catatan">
+                              <input type="checkbox" name="catatan_kode" value="{{ c.kode }}"
+                                     {{ 'checked' if c.kode in dipilih }}>
+                              <span>{{ c.teks }}</span>
+                            </label>
+                          {% endfor %}
+                        </fieldset>
+                      {% else %}
+                        <p class="kecil redup" style="margin:0">
+                          Belum ada catatan baku.
+                          {% if admin %}<a href="/residu/catatan">Susun daftarnya</a> dulu.{% endif %}
+                        </p>
+                      {% endfor %}
+                      {# catatan lama yang kalimatnya sudah dinonaktifkan tetap
+                         ikut tersimpan supaya tidak hilang diam-diam #}
+                      {% set lama = dipilih | reject('in', kode_aktif) | list %}
+                      {% if lama %}
+                        <p class="kecil redup" style="margin:6px 0 0">
+                          Catatan lama (sudah tidak aktif):
+                          {% for k in lama %}
+                            <span class="tanda abu">{{ peta_catatan.get(k, k) }}</span>
+                            <input type="hidden" name="catatan_kode" value="{{ k }}">
+                          {% endfor %}
+                        </p>
+                      {% endif %}
+                    </div>
+                    <textarea id="ct-{{ r.id }}" name="catatan" rows="3"
+                              class="lebar-penuh" placeholder="keterangan tambahan, boleh beberapa baris"
+                              >{{ r.catatan or '' }}</textarea>
+                  </div>
+                  <p class="kecil" style="margin:10px 0">
+                    <label style="font-weight:500">
+                      <input type="checkbox" name="sudah_diserahkan" value="1"
+                             {{ 'checked' if r.sudah_diserahkan }}>
+                      Sertipikat sudah diserahkan ke pemohon
+                    </label>
+                  </p>
+                </div>
+              </div>
+    </div>
+
+    <div class="kaki-modal">
+      <button type="submit" class="hijau">Simpan</button>
+      <button type="button" class="tombol kedua tutup-modal">Batal</button>
+      <span class="kabar-simpan" role="status" aria-live="polite"></span>
+    </div>
+  </form>
+</dialog>
