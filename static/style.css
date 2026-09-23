@@ -384,6 +384,38 @@ input.isian-catatan { width: 160px; padding: 4px 6px; font-size: 12px; }
 .baris-tautan:last-child { border-bottom: 0; }
 .baris-tautan:hover { background: var(--biru-muda); filter: none; }
 
+/* ------------------------------------------------- panel Ubah di residu */
+/* panel dibuka-tutup dengan menggerakkan tinggi barisnya: pembungkus luar
+   memakai grid 0fr -> 1fr, yang dalam memotong isi yang belum muat */
+tr.baris-rinci > td { padding: 0; }
+.bungkus-rinci {
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: .4;
+  transition: grid-template-rows .24s ease, opacity .24s ease;
+}
+.bungkus-rinci.terbuka { grid-template-rows: 1fr; opacity: 1; }
+.isi-rinci { overflow: hidden; min-height: 0; }
+.borang-residu { padding: 14px 12px; }
+
+.baris-tombol { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.kabar-simpan { font-size: 12px; font-weight: 600; }
+.kabar-simpan.sedang { color: var(--redup); }
+.kabar-simpan.berhasil { color: var(--hijau); }
+.kabar-simpan.gagal { color: var(--merah); font-weight: 500; }
+
+/* sorotan sesaat pada baris yang baru saja tersimpan */
+@keyframes sorot-simpan {
+  from { background: #d9f0db; }
+  to   { background: transparent; }
+}
+tr.baris-tersimpan > td { animation: sorot-simpan 2s ease-out; }
+
+@media (prefers-reduced-motion: reduce) {
+  .bungkus-rinci { transition: none; }
+  tr.baris-tersimpan > td { animation: none; background: #eef7ef; }
+}
+
 /* ------------------------------------------------------- catatan residu */
 /* daftar catatan baku yang tinggal dicentang di borang Ubah halaman Residu */
 .catatan-cepat {

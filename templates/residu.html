@@ -38,35 +38,35 @@
 
 <div class="kisi k6">
   <div class="angka-kotak">
-    <div class="nilai">{{ ringkas.jumlah | angka }}</div>
+    <div class="nilai" data-ringkas="jumlah">{{ ringkas.jumlah | angka }}</div>
     <div class="label">Baris residu</div>
   </div>
   <div class="angka-kotak oranye">
-    <div class="nilai">{{ (ringkas.jumlah - (ringkas.diserahkan or 0)) | angka }}</div>
+    <div class="nilai" data-ringkas="belum_serah">{{ (ringkas.jumlah - (ringkas.diserahkan or 0)) | angka }}</div>
     <div class="label">Belum diserahkan</div>
   </div>
   <div class="angka-kotak hijau">
-    <div class="nilai">{{ (ringkas.diserahkan or 0) | angka }}</div>
+    <div class="nilai" data-ringkas="diserahkan">{{ (ringkas.diserahkan or 0) | angka }}</div>
     <div class="label">Sudah diserahkan</div>
   </div>
   <div class="angka-kotak ungu">
-    <div class="nilai">{{ (ringkas.cocok or 0) | angka }}</div>
+    <div class="nilai" data-ringkas="cocok">{{ (ringkas.cocok or 0) | angka }}</div>
     <div class="label">Cocok dengan bidang</div>
   </div>
   <div class="angka-kotak merah">
-    <div class="nilai">{{ (ringkas.jumlah - (ringkas.cocok or 0)) | angka }}</div>
+    <div class="nilai" data-ringkas="belum_cocok">{{ (ringkas.jumlah - (ringkas.cocok or 0)) | angka }}</div>
     <div class="label">Belum tercocokkan</div>
   </div>
   <div class="angka-kotak">
-    <div class="nilai">{{ (ringkas.ditindaklanjuti or 0) | angka }}</div>
+    <div class="nilai" data-ringkas="ditindaklanjuti">{{ (ringkas.ditindaklanjuti or 0) | angka }}</div>
     <div class="label">Sudah ditindaklanjuti</div>
   </div>
   <div class="angka-kotak hijau">
-    <div class="nilai">{{ (ringkas.blanko_ada or 0) | angka }}</div>
+    <div class="nilai" data-ringkas="blanko_ada">{{ (ringkas.blanko_ada or 0) | angka }}</div>
     <div class="label">Blanko ada</div>
   </div>
   <div class="angka-kotak">
-    <div class="nilai">{{ (ringkas.blanko_belum or 0) | angka }}</div>
+    <div class="nilai" data-ringkas="blanko_belum">{{ (ringkas.blanko_belum or 0) | angka }}</div>
     <div class="label">Blanko belum dicek</div>
   </div>
 </div>
@@ -322,30 +322,7 @@
               <span class="redup">—</span>
             {% endfor %}
           </td>
-          <td class="nowrap">
-            {% if r.sudah_diserahkan %}
-              <span class="tanda hijau">Diserahkan</span>
-            {% else %}
-              <span class="tanda oranye">Belum</span>
-            {% endif %}
-            {% if not r.bidang_id %}
-              <span class="tanda merah" title="Nomor hak ini belum ada di tabel bidang">Belum cocok</span>
-            {% endif %}
-            {% if r.status %}<span class="tanda biru">{{ r.status }}</span>{% endif %}
-            {% set kode_ct = (r.catatan_kode or '').split(',') | select | list %}
-            {% if kode_ct %}
-              {% set teks_ct = [] %}
-              {% for k in kode_ct %}{% set _ = teks_ct.append(peta_catatan.get(k, k)) %}{% endfor %}
-              <span class="tanda ungu" title="{{ teks_ct | join(' · ') }}">
-                {{ kode_ct | length }} catatan
-              </span>
-            {% endif %}
-            {% if r.blanko_ada == 'Tidak Ada' %}
-              <span class="tanda merah">Blanko tidak ada</span>
-            {% elif not r.blanko_ada %}
-              <span class="tanda abu">Blanko belum dicek</span>
-            {% endif %}
-          </td>
+          <td class="nowrap sel-status">{% include "bagian_status_residu.html" %}</td>
           <td class="tengah">
             <button type="button" class="tombol kecil kedua buka-rinci"
                     data-target="rinci-{{ r.id }}">Ubah</button>
@@ -353,7 +330,12 @@
         </tr>
         <tr class="baris-rinci" id="rinci-{{ r.id }}" hidden>
           <td colspan="12">
-            <form method="post" action="/residu/{{ r.id }}/simpan">
+            {# dua lapis pembungkus supaya panelnya bisa membuka-menutup halus:
+               yang luar menganimasikan tingginya, yang dalam memotong isinya #}
+            <div class="bungkus-rinci">
+             <div class="isi-rinci">
+            <form method="post" action="/residu/{{ r.id }}/simpan"
+                  class="borang-residu" data-id="{{ r.id }}">
               <input type="hidden" name="kembali_ke" value="{{ kembali_ke }}">
               <div class="kisi k2">
                 <div>
@@ -381,7 +363,7 @@
                       {% endif %}
                     </dd>
                     <dt>Terakhir diubah</dt>
-                    <dd class="kecil redup">
+                    <dd class="kecil redup sel-diubah">
                       {{ (r.diubah_pada ~ ' oleh ' ~ (r.diubah_oleh or '-')) if r.diubah_pada else 'belum pernah' }}
                     </dd>
                   </dl>
@@ -488,10 +470,16 @@
                       Sertipikat sudah diserahkan ke pemohon
                     </label>
                   </p>
-                  <button type="submit" class="hijau">Simpan</button>
+                  <div class="baris-tombol">
+                    <button type="submit" class="hijau">Simpan</button>
+                    <button type="button" class="tombol kedua batal-rinci">Batal</button>
+                    <span class="kabar-simpan" role="status" aria-live="polite"></span>
+                  </div>
                 </div>
               </div>
             </form>
+             </div>
+            </div>
           </td>
         </tr>
       {% else %}
@@ -573,13 +561,139 @@
   });
 })();
 
+// Buka-tutup panel Ubah dengan gerak halus. Baris <tr> sendiri tidak bisa
+// dianimasikan tingginya, jadi yang digerakkan pembungkus di dalam selnya;
+// barisnya baru benar-benar disembunyikan sesudah geraknya selesai.
+var RINCI = (function () {
+  var LAMA = 240;
+
+  function bagian(baris) { return baris.querySelector('.bungkus-rinci'); }
+
+  function tombolnya(baris) {
+    return document.querySelector('.buka-rinci[data-target="' + baris.id + '"]');
+  }
+
+  function buka(baris) {
+    var t = tombolnya(baris);
+    baris.hidden = false;
+    // satu bingkai jeda supaya peramban sempat mencatat tinggi awalnya,
+    // kalau tidak panelnya langsung muncul tanpa gerak
+    requestAnimationFrame(function () { bagian(baris).classList.add('terbuka'); });
+    if (t) { t.textContent = 'Tutup'; }
+  }
+
+  function tutup(baris, sesudah) {
+    var t = tombolnya(baris);
+    bagian(baris).classList.remove('terbuka');
+    if (t) { t.textContent = 'Ubah'; }
+    setTimeout(function () {
+      baris.hidden = true;
+      if (sesudah) { sesudah(); }
+    }, LAMA);
+  }
+
+  return {
+    alih: function (baris) { if (baris.hidden) { buka(baris); } else { tutup(baris); } },
+    tutup: tutup
+  };
+})();
+
 document.querySelectorAll('.buka-rinci').forEach(function (t) {
   t.addEventListener('click', function () {
-    var baris = document.getElementById(t.dataset.target);
-    baris.hidden = !baris.hidden;
-    t.textContent = baris.hidden ? 'Ubah' : 'Tutup';
+    RINCI.alih(document.getElementById(t.dataset.target));
   });
 });
+
+document.querySelectorAll('.batal-rinci').forEach(function (t) {
+  t.addEventListener('click', function () {
+    RINCI.tutup(t.closest('.baris-rinci'));
+  });
+});
+
+// Simpan satu baris tanpa memuat ulang halaman: penanda status, angka di
+// kepala halaman, dan keterangan "terakhir diubah" diperbarui di tempat,
+// panelnya menutup sendiri, lalu barisnya disorot sebentar sebagai tanda.
+// Bila fetch gagal atau sesi sudah habis, borangnya dikirim cara biasa.
+(function () {
+  function sorot(baris) {
+    baris.classList.remove('baris-tersimpan');
+    void baris.offsetWidth;             // paksa peramban mengulang geraknya
+    baris.classList.add('baris-tersimpan');
+    setTimeout(function () { baris.classList.remove('baris-tersimpan'); }, 2200);
+  }
+
+  function pasangAngka(ringkas) {
+    var nilai = {
+      jumlah: ringkas.jumlah,
+      belum_serah: ringkas.jumlah - ringkas.diserahkan,
+      diserahkan: ringkas.diserahkan,
+      cocok: ringkas.cocok,
+      belum_cocok: ringkas.jumlah - ringkas.cocok,
+      ditindaklanjuti: ringkas.ditindaklanjuti,
+      blanko_ada: ringkas.blanko_ada,
+      blanko_belum: ringkas.blanko_belum
+    };
+    Object.keys(nilai).forEach(function (k) {
+      var el = document.querySelector('[data-ringkas="' + k + '"]');
+      if (el) { el.textContent = Number(nilai[k]).toLocaleString('id-ID'); }
+    });
+  }
+
+  document.querySelectorAll('form.borang-residu').forEach(function (borang) {
+    borang.addEventListener('submit', function (e) {
+      if (!window.fetch) { return; }               // peramban lama: cara biasa
+      e.preventDefault();
+
+      var id = borang.dataset.id;
+      var rinci = borang.closest('.baris-rinci');
+      var baris = document.querySelector('tr.baris-data[data-id="' + id + '"]');
+      var kabar = borang.querySelector('.kabar-simpan');
+      var tombol = borang.querySelector('button[type="submit"]');
+
+      tombol.disabled = true;
+      kabar.className = 'kabar-simpan sedang';
+      kabar.textContent = 'Menyimpan…';
+
+      fetch(borang.action, {
+        method: 'POST',
+        body: new FormData(borang),
+        headers: { 'X-Requested-With': 'XMLHttpRequest' },
+        credentials: 'same-origin'
+      }).then(function (jawab) {
+        var jenis = jawab.headers.get('content-type') || '';
+        // sesi habis: jawabannya halaman masuk, jadi kirim ulang cara biasa
+        if (jenis.indexOf('application/json') < 0) { borang.submit(); return null; }
+        return jawab.json();
+      }).then(function (hasil) {
+        if (!hasil) { return; }
+        if (!hasil.ok) { throw new Error(hasil.pesan || 'Gagal menyimpan'); }
+
+        var sel = baris && baris.querySelector('.sel-status');
+        if (sel) { sel.innerHTML = hasil.sel_status; }
+        var diubah = rinci.querySelector('.sel-diubah');
+        if (diubah) { diubah.textContent = hasil.diubah; }
+        if (hasil.ringkas) { pasangAngka(hasil.ringkas); }
+
+        kabar.className = 'kabar-simpan berhasil';
+        kabar.textContent = '✓ Tersimpan';
+        tombol.disabled = false;
+
+        // beri jeda sebentar supaya tanda tersimpannya sempat terbaca
+        setTimeout(function () {
+          RINCI.tutup(rinci, function () {
+            kabar.className = 'kabar-simpan';
+            kabar.textContent = '';
+          });
+          if (baris) { sorot(baris); }
+        }, 700);
+      }).catch(function (galat) {
+        kabar.className = 'kabar-simpan gagal';
+        kabar.textContent = 'Gagal menyimpan: ' + galat.message + '. Coba lagi.';
+        tombol.disabled = false;
+      });
+    });
+  });
+})();
 
 // Daftar catatan baku di borang Ubah: yang ditampilkan hanya kelompok yang
 // sepadan dengan tindak lanjut yang sedang dipilih, ditambah kelompok "Umum".

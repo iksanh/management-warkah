@@ -6,11 +6,11 @@ Lalu buka: http://localhost:8000   (dari komputer lain: http://<ip-server>:8000)
 import os
 import re
 from datetime import date, datetime, timedelta
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
 
 import uvicorn
 from starlette.applications import Starlette
-from starlette.datastructures import UploadFile
+from starlette.datastructures import QueryParams, UploadFile
 from starlette.formparsers import MultiPartException
 from starlette.middleware import Middleware
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -1608,6 +1608,47 @@ async def residu(request: Request):
         tersimpan=qp.get("tersimpan")))
 
 
+def minta_json(request: Request) -> bool:
+    """True bila borangnya dikirim lewat fetch, bukan pengiriman halaman biasa.
+
+    Dipakai supaya menyimpan satu baris residu tidak perlu memuat ulang seluruh
+    halaman. Bila JavaScript-nya mati, borangnya terkirim seperti biasa dan
+    jawabannya tetap berupa pengalihan halaman.
+    """
+    return request.headers.get("x-requested-with") == "XMLHttpRequest"
+
+
+def ringkas_baris(kon, rid, kembali_ke=""):
+    """Keadaan satu baris residu sesudah disimpan, untuk jawaban fetch.
+
+    ``kembali_ke`` berisi saringan yang sedang dipakai halaman; angka besar di
+    kepala halaman dihitung ulang mengikutinya supaya ikut bergerak tanpa
+    memuat ulang halaman.
+    """
+    r = kon.execute(SQL_RESIDU + " WHERE r.id = ?", (rid,)).fetchone()
+    peta = {c["kode"]: c["teks"] for c in daftar_catatan(kon, semua=True)}
+    sel = templates.get_template("bagian_status_residu.html").render(
+        r=r, peta_catatan=peta)
+    where, par = filter_residu(QueryParams(urlsplit(kembali_ke).query))
+    ringkas = angka_residu(kon, where, par)
+    return {
+        "ok": True,
+        "id": rid,
+        "sel_status": sel.strip(),
+        "diubah": ("%s oleh %s" % (r["diubah_pada"], r["diubah_oleh"] or "-")
+                   if r["diubah_pada"] else "belum pernah"),
+        "petugas": r["petugas"] or "",
+        "ringkas": {
+            "jumlah": ringkas["jumlah"],
+            "diserahkan": ringkas["diserahkan"] or 0,
+            "cocok": ringkas["cocok"] or 0,
+            "ditindaklanjuti": ringkas["ditindaklanjuti"] or 0,
+            "blanko_ada": ringkas["blanko_ada"] or 0,
+            "blanko_belum": ringkas["blanko_belum"] or 0,
+        },
+    }
+
+
 async def simpan_residu(request: Request):
     """Simpan kolom kerja satu baris residu; kolom hasil impor tidak disentuh."""
     rid = int(request.path_params["residu_id"])
@@ -1626,6 +1667,9 @@ async def simpan_residu(request: Request):
     ada = kon.execute("SELECT nomor_hak FROM residu WHERE id = ?", (rid,)).fetchone()
     if ada is None:
         kon.close()
+        if minta_json(request):
+            return JSONResponse({"ok": False, "pesan": "Data residu tidak ditemukan"},
+                                status_code=404)
         return Response("Data residu tidak ditemukan", status_code=404)
     kon.execute(
         "UPDATE residu SET %s, sudah_diserahkan = ?, diubah_oleh = ?, "
@@ -1635,9 +1679,13 @@ async def simpan_residu(request: Request):
     tulis_log(kon, siapa, "Simpan residu", None,
               "%s: %s" % (ada["nomor_hak"] or "-", isi(form, "status") or "-"))
     kon.commit()
-    kon.close()
 
     tujuan = form.get("kembali_ke") or "/residu"
+    if minta_json(request):
+        jawab = ringkas_baris(kon, rid, tujuan)
+        kon.close()
+        return JSONResponse(jawab)
+    kon.close()
     pisah = "&" if "?" in tujuan else "?"
     return RedirectResponse("%s%stersimpan=1" % (tujuan, pisah), status_code=303)
 

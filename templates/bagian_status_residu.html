@@ -1,0 +1,25 @@
+{# Isi sel Status pada tabel Residu. Dipakai dua kali: saat halaman disusun,
+   dan saat satu baris disimpan tanpa memuat ulang halaman - jawabannya berisi
+   potongan ini supaya penandanya tidak perlu disusun ulang di JavaScript. #}
+{% if r.sudah_diserahkan %}
+  <span class="tanda hijau">Diserahkan</span>
+{% else %}
+  <span class="tanda oranye">Belum</span>
+{% endif %}
+{% if not r.bidang_id %}
+  <span class="tanda merah" title="Nomor hak ini belum ada di tabel bidang">Belum cocok</span>
+{% endif %}
+{% if r.status %}<span class="tanda biru">{{ r.status }}</span>{% endif %}
+{% set kode_ct = (r.catatan_kode or '').split(',') | select | list %}
+{% if kode_ct %}
+  {% set teks_ct = [] %}
+  {% for k in kode_ct %}{% set _ = teks_ct.append(peta_catatan.get(k, k)) %}{% endfor %}
+  <span class="tanda ungu" title="{{ teks_ct | join(' · ') }}">
+    {{ kode_ct | length }} catatan
+  </span>
+{% endif %}
+{% if r.blanko_ada == 'Tidak Ada' %}
+  <span class="tanda merah">Blanko tidak ada</span>
+{% elif not r.blanko_ada %}
+  <span class="tanda abu">Blanko belum dicek</span>
+{% endif %}
