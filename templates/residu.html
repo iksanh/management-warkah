@@ -120,6 +120,21 @@
       </select>
     </div>
     <div class="bidang-isian">
+      <label for="catatan">Catatan</label>
+      <select id="catatan" name="catatan">
+        <option value="">Semua</option>
+        {% for kel, daftar in grup_catatan %}
+          <optgroup label="{{ kel }}">
+            {% for c in daftar %}
+              <option value="{{ c.kode }}" {{ 'selected' if qp.get('catatan') == c.kode }}>
+                {{ c.teks }}
+              </option>
+            {% endfor %}
+          </optgroup>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="bidang-isian">
       <label for="serah">Penyerahan</label>
       <select id="serah" name="serah">
         <option value="">Semua</option>
@@ -167,6 +182,8 @@
     <a class="tombol kecil kedua" href="/residu.csv{{ ('?' ~ request.url.query) if request.url.query }}">Unduh CSV</a>
     <a class="tombol kecil kedua" href="/residu/rekap"
        title="Rekap harian pengecekan blanko per petugas dan per desa">Rekap pengecekan blanko</a>
+    <a class="tombol kecil kedua" href="/residu/catatan"
+       title="Susun kalimat catatan yang tinggal dicentang di borang Ubah">Catatan residu</a>
     {% if admin %}
       <a class="tombol kecil kedua" href="/residu/impor">Impor berkas residu</a>
       <form method="post" action="/residu/cocokkan" style="display:inline">
@@ -315,6 +332,14 @@
               <span class="tanda merah" title="Nomor hak ini belum ada di tabel bidang">Belum cocok</span>
             {% endif %}
             {% if r.status %}<span class="tanda biru">{{ r.status }}</span>{% endif %}
+            {% set kode_ct = (r.catatan_kode or '').split(',') | select | list %}
+            {% if kode_ct %}
+              {% set teks_ct = [] %}
+              {% for k in kode_ct %}{% set _ = teks_ct.append(peta_catatan.get(k, k)) %}{% endfor %}
+              <span class="tanda ungu" title="{{ teks_ct | join(' · ') }}">
+                {{ kode_ct | length }} catatan
+              </span>
+            {% endif %}
             {% if r.blanko_ada == 'Tidak Ada' %}
               <span class="tanda merah">Blanko tidak ada</span>
             {% elif not r.blanko_ada %}
@@ -408,10 +433,53 @@
                              value="{{ r.penerima or '' }}" placeholder="nama penerima">
                     </div>
                   </div>
+                  {% set dipilih = (r.catatan_kode or '').split(',') | select | list %}
                   <div class="bidang-isian isian-lebar">
                     <label for="ct-{{ r.id }}">Catatan</label>
-                    <input type="text" id="ct-{{ r.id }}" name="catatan"
-                           value="{{ r.catatan or '' }}" class="lebar-penuh">
+                    <div class="catatan-cepat" data-baris="{{ r.id }}">
+                      <div class="catatan-kepala">
+                        <span class="kecil redup">
+                          Centang catatan yang sesuai
+                          (<span class="jml-catatan">{{ dipilih | length }}</span> dipilih),
+                          lalu tambahkan keterangan bila perlu.
+                        </span>
+                        <button type="button" class="tombol kecil kedua semua-catatan">
+                          Tampilkan semua kelompok
+                        </button>
+                      </div>
+                      {% for kel, daftar in grup_catatan %}
+                        <fieldset class="grup-catatan" data-kelompok="{{ kel }}">
+                          <legend>{{ kel }}</legend>
+                          {% for c in daftar %}
+                            <label class="pilih-catatan">
+                              <input type="checkbox" name="catatan_kode" value="{{ c.kode }}"
+                                     {{ 'checked' if c.kode in dipilih }}>
+                              <span>{{ c.teks }}</span>
+                            </label>
+                          {% endfor %}
+                        </fieldset>
+                      {% else %}
+                        <p class="kecil redup" style="margin:0">
+                          Belum ada catatan baku.
+                          {% if admin %}<a href="/residu/catatan">Susun daftarnya</a> dulu.{% endif %}
+                        </p>
+                      {% endfor %}
+                      {# catatan lama yang kalimatnya sudah dinonaktifkan tetap
+                         ikut tersimpan supaya tidak hilang diam-diam #}
+                      {% set lama = dipilih | reject('in', kode_aktif) | list %}
+                      {% if lama %}
+                        <p class="kecil redup" style="margin:6px 0 0">
+                          Catatan lama (sudah tidak aktif):
+                          {% for k in lama %}
+                            <span class="tanda abu">{{ peta_catatan.get(k, k) }}</span>
+                            <input type="hidden" name="catatan_kode" value="{{ k }}">
+                          {% endfor %}
+                        </p>
+                      {% endif %}
+                    </div>
+                    <textarea id="ct-{{ r.id }}" name="catatan" rows="3"
+                              class="lebar-penuh" placeholder="keterangan tambahan, boleh beberapa baris"
+                              >{{ r.catatan or '' }}</textarea>
                   </div>
                   <p class="kecil" style="margin:10px 0">
                     <label style="font-weight:500">
@@ -512,6 +580,44 @@ document.querySelectorAll('.buka-rinci').forEach(function (t) {
     t.textContent = baris.hidden ? 'Ubah' : 'Tutup';
   });
 });
+
+// Daftar catatan baku di borang Ubah: yang ditampilkan hanya kelompok yang
+// sepadan dengan tindak lanjut yang sedang dipilih, ditambah kelompok "Umum".
+// Kelompok lain tetap bisa dibuka lewat tombol "Tampilkan semua kelompok",
+// dan tidak pernah disembunyikan selama masih ada catatannya yang tercentang.
+(function () {
+  document.querySelectorAll('.catatan-cepat').forEach(function (kotak) {
+    var borang = kotak.closest('form');
+    var tindak = borang.querySelector('select[name="tindak_lanjut"]');
+    var jml = kotak.querySelector('.jml-catatan');
+    var tombol = kotak.querySelector('.semua-catatan');
+    var semua = false;
+
+    function segarkan() {
+      var pilihan = tindak ? tindak.value : '';
+      kotak.querySelectorAll('.grup-catatan').forEach(function (g) {
+        var kel = g.dataset.kelompok;
+        var tercentang = g.querySelector('input[type="checkbox"]:checked');
+        g.hidden = !(semua || kel === 'Umum' || kel === pilihan || tercentang);
+      });
+      if (jml) {
+        jml.textContent =
+          kotak.querySelectorAll('input[type="checkbox"]:checked').length;
+      }
+    }
+
+    if (tombol) {
+      tombol.addEventListener('click', function () {
+        semua = !semua;
+        tombol.textContent = semua ? 'Ringkas lagi' : 'Tampilkan semua kelompok';
+        segarkan();
+      });
+    }
+    if (tindak) { tindak.addEventListener('change', segarkan); }
+    kotak.addEventListener('change', segarkan);
+    segarkan();
+  });
+})();
 </script>
 
 <div class="kartu">

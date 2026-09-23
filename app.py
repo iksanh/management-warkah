@@ -1413,7 +1413,40 @@ LEFT JOIN penyimpanan s ON s.bidang_id = r.bidang_id
 
 # kolom kerja: hanya ini yang boleh diubah petugas, sisanya milik hasil impor
 KOLOM_KERJA = ["status", "tindak_lanjut", "petugas", "tanggal_serah", "penerima",
-               "catatan"]
+               "catatan", "catatan_kode"]
+
+
+def daftar_catatan(kon, semua=False):
+    """Catatan baku, terurut kelompok lalu urut; hanya yang aktif kecuali diminta."""
+    return kon.execute(
+        "SELECT kode, kelompok, teks, urut, aktif FROM catatan_baku"
+        + ("" if semua else " WHERE aktif = 1")
+        + " ORDER BY urut, kode").fetchall()
+
+
+def kelompokkan_catatan(baris):
+    """Ubah daftar catatan baku jadi [(kelompok, [baris, ...]), ...].
+
+    Kelompok "Umum" ditaruh paling akhir karena isinya berlaku untuk tindak
+    lanjut apa pun, sedangkan kelompok lain menempel pada satu tindak lanjut.
+    """
+    grup = {}
+    for c in baris:
+        grup.setdefault(c["kelompok"], []).append(c)
+    return sorted(grup.items(), key=lambda g: (g[0] == "Umum", g[0]))
+
+
+def kode_catatan(kon, form):
+    """Kode catatan baku yang dicentang, dirapikan jadi "LB1,PD2".
+
+    Kode yang tidak dikenal dibuang supaya isi kolomnya tetap bisa dipakai
+    sebagai saringan dan rekap.
+    """
+    sah = {c["kode"] for c in kon.execute("SELECT kode FROM catatan_baku")}
+    dipilih = [k.strip() for k in form.getlist("catatan_kode") if k.strip() in sah]
+    # urutan mengikuti daftar centang di borang, duplikat dibuang
+    unik = list(dict.fromkeys(dipilih))
+    return ",".join(unik) or None
 
 
 def filter_residu(qp, kecuali=()):
@@ -1448,6 +1481,12 @@ def filter_residu(qp, kecuali=()):
         par.append("%," + t + ",%")
     elif (qp.get("tipologi_kosong") or "") == "1":
         syarat.append("NULLIF(TRIM(COALESCE(r.tipologi, '')), '') IS NULL")
+
+    ct = (qp.get("catatan") or "").strip() if "catatan" not in kecuali else ""
+    if ct:
+        # sama seperti tipologi: kode disimpan dipisah koma, mis. "LB1,PD2"
+        syarat.append("(',' || r.catatan_kode || ',') LIKE ?")
+        par.append("%," + ct + ",%")
 
     serah = (qp.get("serah") or "").strip() if "serah" not in kecuali else ""
     if serah == "belum":
@@ -1541,6 +1580,10 @@ async def residu(request: Request):
         ).fetchone()[0]
     daftar_petugas = kon.execute(
         "SELECT nama FROM petugas WHERE aktif = 1 ORDER BY nama").fetchall()
+    catatan_aktif = daftar_catatan(kon)
+    # peta kode -> teks dipakai baris tabel supaya catatan tercentang bisa
+    # ditampilkan sebagai kalimat, bukan kodenya saja
+    peta_catatan = {c["kode"]: c["teks"] for c in daftar_catatan(kon, semua=True)}
     kon.close()
 
     kec_terpilih = (qp.get("kecamatan") or "").strip()
@@ -1559,6 +1602,8 @@ async def residu(request: Request):
         kecamatan=kecamatan, desa=desa, desa_tampil=desa_tampil,
         kec_terpilih=kec_terpilih, daftar_tipologi=daftar_tipologi,
         hitung_tipologi=hitung_tipologi, daftar_petugas=daftar_petugas,
+        grup_catatan=kelompokkan_catatan(catatan_aktif),
+        kode_aktif=[c["kode"] for c in catatan_aktif], peta_catatan=peta_catatan,
         qp=qp, dasar=dasar, kembali_ke=kembali_ke, hari_ini=hari_ini(),
         tersimpan=qp.get("tersimpan")))
 
@@ -1576,6 +1621,8 @@ async def simpan_residu(request: Request):
     serah = 1 if form.get("sudah_diserahkan") == "1" else 0
 
     kon = db.sambung()
+    # catatan tercentang dikirim sebagai daftar kode, bukan satu kotak teks
+    nilai[KOLOM_KERJA.index("catatan_kode")] = kode_catatan(kon, form)
     ada = kon.execute("SELECT nomor_hak FROM residu WHERE id = ?", (rid,)).fetchone()
     if ada is None:
         kon.close()
@@ -1870,7 +1917,7 @@ JUDUL_RESIDU_CSV = ["Tahun", "Nomor_Berkas", "Nomor_Hak", "Nomor_Hak_Asli",
                     "Kecamatan", "Desa", "Nama_Pemegang", "No_Seri_Blanko",
                     "Luas", "Sudah_Diserahkan", "Tipologi", "Keterangan",
                     "Status", "Tindak_Lanjut", "Petugas", "Tanggal_Serah",
-                    "Penerima", "Catatan", "Blanko_Ada", "Blanko_Petugas",
+                    "Penerima", "Catatan_Baku", "Catatan", "Blanko_Ada", "Blanko_Petugas",
                     "Blanko_Tanggal", "Cocok_Dengan_Bidang", "Surat_Ukur", "NIB"]
 
 
@@ -1881,6 +1928,7 @@ async def residu_csv(request: Request):
     baris = kon.execute(
         SQL_RESIDU + where + " ORDER BY r.tahun, w.nama_kecamatan, w.nama_desa, "
         "r.nomor_hak", par).fetchall()
+    peta = {c["kode"]: c["teks"] for c in daftar_catatan(kon, semua=True)}
     kon.close()
 
     keluar = [";".join(JUDUL_RESIDU_CSV)]
@@ -1892,7 +1940,9 @@ async def residu_csv(request: Request):
             r["no_seri_blanko"], r["luas"],
             "Sudah" if r["sudah_diserahkan"] else "Belum",
             r["tipologi"], r["keterangan"], r["status"], r["tindak_lanjut"],
-            r["petugas"], r["tanggal_serah"], r["penerima"], r["catatan"],
+            r["petugas"], r["tanggal_serah"], r["penerima"],
+            " | ".join(peta.get(k, k) for k in (r["catatan_kode"] or "").split(",") if k),
+            r["catatan"],
             r["blanko_ada"] or "Belum Dicek", r["blanko_petugas"],
             r["blanko_tanggal"],
             "Ya" if r["bidang_id"] else "Belum", r["surat_ukur"], r["nib"])))
@@ -1921,6 +1971,96 @@ async def simpan_tipologi(request: Request):
     kon.commit()
     kon.close()
     return RedirectResponse(form.get("kembali_ke") or "/residu", status_code=303)
+
+
+# ------------------------------------------------- menu catatan baku residu
+# Kalimat catatan yang berulang dipakai petugas. Isinya dikelola di halaman
+# sendiri supaya borang Ubah di halaman Residu tetap ringkas: di sana catatan
+# tinggal dicentang, tidak diketik ulang tiap baris.
+
+def hitung_pakai_catatan(kon):
+    """Berapa baris residu memakai tiap kode catatan baku."""
+    hitung = {}
+    for kode, in kon.execute("SELECT kode FROM catatan_baku"):
+        hitung[kode] = kon.execute(
+            "SELECT COUNT(*) FROM residu WHERE (',' || catatan_kode || ',') LIKE ?",
+            ("%," + kode + ",%",)).fetchone()[0]
+    return hitung
+
+
+def kode_baru(kon, kelompok):
+    """Kode singkat untuk catatan baru, mis. "Lengkapi Berkas" -> LB9."""
+    awalan = "".join(k[0] for k in re.findall(r"[A-Za-z]+", kelompok))[:2].upper() or "C"
+    dipakai = {r["kode"] for r in kon.execute("SELECT kode FROM catatan_baku")}
+    n = 1
+    while awalan + str(n) in dipakai:
+        n += 1
+    return awalan + str(n)
+
+
+KELOMPOK_CATATAN = db.PILIHAN["tindak_lanjut_residu"] + ["Umum"]
+
+
+async def halaman_catatan(request: Request):
+    kon = db.sambung()
+    baris = daftar_catatan(kon, semua=True)
+    hitung = hitung_pakai_catatan(kon)
+    kon.close()
+    return templates.TemplateResponse(request, "catatan_baku.html", konteks(
+        request, baris=baris, grup=kelompokkan_catatan(baris), hitung=hitung,
+        kelompok_pilihan=KELOMPOK_CATATAN, qp=request.query_params))
+
+
+async def simpan_catatan_baku(request: Request):
+    """Simpan perubahan daftar catatan baku sekaligus: ubah, tambah, hapus."""
+    if not is_admin(request):
+        return tolak(request, "Catatan baku hanya bisa diubah oleh Admin.")
+    form = await request.form()
+    kon = db.sambung()
+
+    diubah = dihapus = ditambah = 0
+    for r in kon.execute("SELECT kode FROM catatan_baku").fetchall():
+        kode = r["kode"]
+        if form.get("hapus_" + kode) == "1":
+            # catatan yang terlanjur dipakai baris residu tidak dibuang, cukup
+            # dinonaktifkan, supaya kalimat lama tidak hilang dari riwayatnya
+            if kon.execute(
+                    "SELECT COUNT(*) FROM residu WHERE (',' || catatan_kode || ',') "
+                    "LIKE ?", ("%," + kode + ",%",)).fetchone()[0]:
+                kon.execute("UPDATE catatan_baku SET aktif = 0 WHERE kode = ?", (kode,))
+            else:
+                kon.execute("DELETE FROM catatan_baku WHERE kode = ?", (kode,))
+            dihapus += 1
+            continue
+        teks = isi(form, "teks_" + kode)
+        if teks is None:
+            continue
+        kelompok = isi(form, "kelompok_" + kode) or "Umum"
+        urut = isi(form, "urut_" + kode)
+        kon.execute(
+            "UPDATE catatan_baku SET teks = ?, kelompok = ?, urut = ?, aktif = ? "
+            "WHERE kode = ?",
+            (teks, kelompok, int(urut) if (urut or "").isdigit() else None,
+             1 if form.get("aktif_" + kode) == "1" else 0, kode))
+        diubah += 1
+
+    for teks in [t.strip() for t in form.getlist("baru_teks")]:
+        if not teks:
+            continue
+        kelompok = isi(form, "baru_kelompok") or "Umum"
+        urut = kon.execute(
+            "SELECT COALESCE(MAX(urut), 0) + 1 FROM catatan_baku WHERE kelompok = ?",
+            (kelompok,)).fetchone()[0]
+        kon.execute(
+            "INSERT INTO catatan_baku (kode, kelompok, teks, urut) VALUES (?,?,?,?)",
+            (kode_baru(kon, kelompok), kelompok, teks, urut))
+        ditambah += 1
+
+    tulis_log(kon, petugas_aktif(request), "Ubah catatan baku residu", None,
+              "%d diubah, %d ditambah, %d dihapus" % (diubah, ditambah, dihapus))
+    kon.commit()
+    kon.close()
+    return RedirectResponse("/residu/catatan?tersimpan=1", status_code=303)
 
 
 async def cocokkan_residu(request: Request):
@@ -2354,6 +2494,8 @@ rute = [
     Route("/residu/centang", centang_blanko, methods=["POST"]),
     Route("/residu/{residu_id:int}/simpan", simpan_residu, methods=["POST"]),
     Route("/residu/tipologi", simpan_tipologi, methods=["POST"]),
+    Route("/residu/catatan", halaman_catatan),
+    Route("/residu/catatan/simpan", simpan_catatan_baku, methods=["POST"]),
     Route("/residu/cocokkan", cocokkan_residu, methods=["POST"]),
     Route("/residu/impor", halaman_impor_residu),
     Route("/residu/impor/jalankan", jalankan_impor_residu, methods=["POST"]),

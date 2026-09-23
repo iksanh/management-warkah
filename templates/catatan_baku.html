@@ -1,0 +1,174 @@
+{% extends "dasar.html" %}
+{% block judul %}Catatan Residu — Aplikasi Warkah{% endblock %}
+{% block isi %}
+
+<h1>Catatan residu</h1>
+<p class="jelas">
+  Kalimat catatan yang berulang-ulang dipakai saat menindaklanjuti residu.
+  Di halaman Residu, catatan ini tinggal dicentang pada borang <strong>Ubah</strong>
+  sehingga petugas tidak perlu mengetik ulang, dan hasilnya bisa disaring serta
+  direkap. Kelompoknya mengikuti nama tindak lanjut: kelompok yang sepadan akan
+  muncul sendiri begitu tindak lanjutnya dipilih, sedangkan kelompok
+  <strong>Umum</strong> selalu tampil.
+</p>
+
+{% if qp.get('tersimpan') %}
+  <div class="pesan sukses">Daftar catatan tersimpan.</div>
+{% endif %}
+{% if not admin %}
+  <div class="pesan">Daftar ini hanya bisa diubah oleh Admin.</div>
+{% endif %}
+
+<p class="kecil" style="margin:0 0 12px">
+  <a class="tombol kecil kedua" href="/residu">&laquo; Kembali ke Residu</a>
+</p>
+
+<form method="post" action="/residu/catatan/simpan">
+{% for kel, daftar in grup %}
+  <div class="kartu rapat">
+    <h2>{{ kel }} <span class="kecil redup">({{ daftar | length }} catatan)</span></h2>
+    <div class="gulir">
+      <table>
+        <thead>
+          <tr>
+            <th class="kol-opsional">Kode</th>
+            <th>Kalimat catatan</th>
+            <th class="kol-opsional">Kelompok</th>
+            <th class="angka kol-opsional">Urut</th>
+            <th class="angka">Dipakai</th>
+            <th class="tengah">Aktif</th>
+            {% if admin %}<th class="tengah">Hapus</th>{% endif %}
+          </tr>
+        </thead>
+        <tbody>
+        {% for c in daftar %}
+          <tr class="{{ '' if c.aktif else 'redup' }}">
+            <td class="mono kecil nowrap kol-opsional">{{ c.kode }}</td>
+            <td>
+              {% if admin %}
+                <input type="text" name="teks_{{ c.kode }}" value="{{ c.teks }}"
+                       class="lebar-penuh" required>
+              {% else %}
+                {{ c.teks }}
+              {% endif %}
+            </td>
+            <td class="kol-opsional">
+              {% if admin %}
+                <select name="kelompok_{{ c.kode }}">
+                  {% for k in kelompok_pilihan %}
+                    <option value="{{ k }}" {{ 'selected' if c.kelompok == k }}>{{ k }}</option>
+                  {% endfor %}
+                  {% if c.kelompok not in kelompok_pilihan %}
+                    <option value="{{ c.kelompok }}" selected>{{ c.kelompok }}</option>
+                  {% endif %}
+                </select>
+              {% else %}
+                {{ c.kelompok }}
+              {% endif %}
+            </td>
+            <td class="angka kol-opsional">
+              {% if admin %}
+                <input type="number" name="urut_{{ c.kode }}" value="{{ c.urut or '' }}"
+                       min="0" style="width:5em">
+              {% else %}
+                {{ c.urut or '—' }}
+              {% endif %}
+            </td>
+            <td class="angka">
+              {% if hitung.get(c.kode) %}
+                <a href="/residu?catatan={{ c.kode }}">{{ hitung.get(c.kode) | angka }}</a>
+              {% else %}
+                <span class="redup">0</span>
+              {% endif %}
+            </td>
+            <td class="tengah">
+              {% if admin %}
+                <input type="checkbox" name="aktif_{{ c.kode }}" value="1"
+                       {{ 'checked' if c.aktif }}
+                       title="Hanya catatan aktif yang muncul di borang Ubah">
+              {% elif c.aktif %}
+                <span class="tanda hijau">Aktif</span>
+              {% else %}
+                <span class="tanda abu">Nonaktif</span>
+              {% endif %}
+            </td>
+            {% if admin %}
+              <td class="tengah">
+                <input type="checkbox" name="hapus_{{ c.kode }}" value="1"
+                       title="{{ 'Sudah dipakai baris residu, jadi hanya akan dinonaktifkan'
+                                 if hitung.get(c.kode) else 'Hapus catatan ini' }}">
+              </td>
+            {% endif %}
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+{% else %}
+  <div class="kartu">
+    <p class="kosong">Belum ada catatan baku.</p>
+  </div>
+{% endfor %}
+
+{% if admin %}
+  <div class="kartu">
+    <h2>Tambah catatan</h2>
+    <p class="kecil redup" style="margin-top:0">
+      Kodenya dibuatkan sendiri dari nama kelompok, mis. <span class="mono">LB9</span>.
+      Baris kosong diabaikan, jadi boleh menambah beberapa sekaligus.
+    </p>
+    <div class="bidang-isian">
+      <label for="baru-kelompok">Kelompok</label>
+      <select id="baru-kelompok" name="baru_kelompok">
+        {% for k in kelompok_pilihan %}
+          <option value="{{ k }}" {{ 'selected' if k == 'Umum' }}>{{ k }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div id="baris-baru">
+      <div class="bidang-isian isian-lebar">
+        <label for="baru-1">Kalimat catatan</label>
+        <input type="text" id="baru-1" name="baru_teks" class="lebar-penuh"
+               placeholder="mis. Surat keterangan ahli waris belum ada">
+      </div>
+    </div>
+    <p style="margin:12px 0 0; display:flex; gap:8px; flex-wrap:wrap">
+      <button type="button" class="tombol kedua" id="tambah-baris">+ Baris lagi</button>
+      <button type="submit" class="hijau">Simpan daftar catatan</button>
+    </p>
+    <p class="kecil redup" style="margin:10px 0 0">
+      Catatan yang sudah dipakai baris residu tidak benar-benar dihapus, hanya
+      dinonaktifkan, supaya kalimat pada data lama tidak ikut hilang.
+    </p>
+  </div>
+{% endif %}
+</form>
+
+<script>
+(function () {
+  var tombol = document.getElementById('tambah-baris');
+  if (!tombol) { return; }
+  var wadah = document.getElementById('baris-baru');
+  var n = 1;
+  tombol.addEventListener('click', function () {
+    n += 1;
+    var bungkus = document.createElement('div');
+    bungkus.className = 'bidang-isian isian-lebar';
+    var label = document.createElement('label');
+    label.setAttribute('for', 'baru-' + n);
+    label.textContent = 'Kalimat catatan';
+    var isian = document.createElement('input');
+    isian.type = 'text';
+    isian.id = 'baru-' + n;
+    isian.name = 'baru_teks';
+    isian.className = 'lebar-penuh';
+    bungkus.appendChild(label);
+    bungkus.appendChild(isian);
+    wadah.appendChild(bungkus);
+    isian.focus();
+  });
+})();
+</script>
+
+{% endblock %}

@@ -33,6 +33,36 @@ TIPOLOGI = [
     ("T8", "T8", 17),
 ]
 
+# Catatan baku residu: kalimat yang berulang-ulang ditulis petugas saat mengisi
+# catatan di halaman Residu, jadi tinggal dicentang. "kelompok" sengaja memakai
+# nama tindak lanjut yang sama persis dengan tindak_lanjut_residu di bawah,
+# supaya borang Ubah bisa langsung menampilkan kelompok yang sesuai dengan
+# tindak lanjut yang sedang dipilih. Kelompok "Umum" selalu ikut tampil.
+# Daftar ini hanya bibit awal; isinya ditambah/diubah lewat menu Catatan Residu.
+CATATAN_BAKU = [
+    ("LB1", "Lengkapi Berkas", "Fotokopi KTP pemohon belum ada", 1),
+    ("LB2", "Lengkapi Berkas", "Fotokopi kartu keluarga belum ada", 2),
+    ("LB3", "Lengkapi Berkas", "SPPT/bukti lunas PBB belum ada", 3),
+    ("LB4", "Lengkapi Berkas", "Alas hak (surat keterangan tanah) belum lengkap", 4),
+    ("LB5", "Lengkapi Berkas", "Surat pernyataan penguasaan fisik belum ditandatangani", 5),
+    ("LB6", "Lengkapi Berkas", "Materai/tanda tangan belum lengkap", 6),
+    ("LB7", "Lengkapi Berkas", "Surat keterangan waris belum ada", 7),
+    ("LB8", "Lengkapi Berkas", "Berkas belum diserahkan kembali oleh pemohon", 8),
+    ("PD1", "Perbaikan Data", "Nama pemegang hak tidak sesuai KTP", 20),
+    ("PD2", "Perbaikan Data", "NIK belum ada / tidak sesuai", 21),
+    ("PD3", "Perbaikan Data", "Tempat/tanggal lahir tidak sesuai", 22),
+    ("PD4", "Perbaikan Data", "Alamat pemegang hak sudah berubah", 23),
+    ("PD5", "Perbaikan Data", "Luas sertipikat tidak sesuai surat ukur", 24),
+    ("PD6", "Perbaikan Data", "Nomor hak/NIB salah tulis", 25),
+    ("PD7", "Perbaikan Data", "Letak desa/kecamatan tidak sesuai", 26),
+    ("PD8", "Perbaikan Data", "Data pemegang hak ganda di KKP", 27),
+    ("UM1", "Umum", "Pemohon sudah dihubungi, menunggu kedatangan", 40),
+    ("UM2", "Umum", "Pemohon tidak berada di tempat/merantau", 41),
+    ("UM3", "Umum", "Pemohon meninggal dunia, menunggu ahli waris", 42),
+    ("UM4", "Umum", "Menunggu koordinasi dengan perangkat desa", 43),
+    ("UM5", "Umum", "Berkas masih diproses di seksi lain", 44),
+]
+
 SKEMA = """
 PRAGMA journal_mode = WAL;
 PRAGMA foreign_keys = ON;
@@ -175,6 +205,17 @@ CREATE TABLE IF NOT EXISTS tipologi (
     urut      INTEGER
 );
 
+-- kalimat catatan yang tinggal dicentang di borang Ubah residu; kodenya yang
+-- disimpan di residu.catatan_kode, jadi teksnya boleh diperbaiki kapan saja
+-- tanpa mengubah data residu yang sudah tercatat
+CREATE TABLE IF NOT EXISTS catatan_baku (
+    kode      TEXT PRIMARY KEY,
+    kelompok  TEXT NOT NULL,
+    teks      TEXT NOT NULL,
+    urut      INTEGER,
+    aktif     INTEGER NOT NULL DEFAULT 1
+);
+
 -- satu baris = satu sertipikat PTSL yang belum diserahkan ke pemohon.
 -- Bila nomor haknya ada di tabel bidang, baris ini menempel satu-lawan-satu
 -- lewat bidang_id; bila belum ketemu, bidang_id dibiarkan kosong dan barisnya
@@ -209,6 +250,7 @@ CREATE TABLE IF NOT EXISTS residu (
     tanggal_serah    TEXT,
     penerima         TEXT,
     catatan          TEXT,
+    catatan_kode     TEXT,
     sumber           TEXT,
     diimpor_pada     TEXT,
     diubah_oleh      TEXT,
@@ -296,6 +338,7 @@ TAMBAHAN_KOLOM = {
         ("blanko_tanggal", "TEXT"),
         ("blanko_tempat", "TEXT"),
         ("blanko_diubah", "TEXT"),
+        ("catatan_kode", "TEXT"),
     ],
     "petugas": [
         ("username", "TEXT"),
@@ -344,6 +387,10 @@ def siapkan():
                         [(n,) for n in PETUGAS_AWAL])
     kon.executemany("INSERT OR IGNORE INTO tipologi (kode, kelompok, urut) "
                     "VALUES (?,?,?)", TIPOLOGI)
+    # INSERT OR IGNORE: kalimat yang sudah diperbaiki lewat menu Catatan Residu
+    # tidak ditimpa lagi setiap deploy, sama seperti keterangan tipologi
+    kon.executemany("INSERT OR IGNORE INTO catatan_baku (kode, kelompok, teks, urut) "
+                    "VALUES (?,?,?,?)", CATATAN_BAKU)
     kon.commit()
     return kon
 
@@ -354,7 +401,7 @@ if __name__ == "__main__":
           "(dari WARKAH_DB)" if os.environ.get("WARKAH_DB") else "(bawaan)")
     for t in ("wilayah", "bidang", "penyimpanan", "pemeriksaan", "peminjaman",
               "penugasan", "petugas", "jenis_hak", "rekap_kkp", "residu",
-              "tipologi", "bidang_tambahan"):
+              "tipologi", "catatan_baku", "bidang_tambahan"):
         n = kon.execute("SELECT COUNT(*) FROM %s" % t).fetchone()[0]
         print("  %-14s %8d baris" % (t, n))
     kon.close()

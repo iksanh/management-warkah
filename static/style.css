@@ -384,6 +384,65 @@ input.isian-catatan { width: 160px; padding: 4px 6px; font-size: 12px; }
 .baris-tautan:last-child { border-bottom: 0; }
 .baris-tautan:hover { background: var(--biru-muda); filter: none; }
 
+/* ------------------------------------------------------- catatan residu */
+/* daftar catatan baku yang tinggal dicentang di borang Ubah halaman Residu */
+.catatan-cepat {
+  border: 1px solid var(--garis);
+  border-radius: 6px;
+  background: #fbfcfd;
+  padding: 10px 12px;
+  margin-bottom: 8px;
+}
+.catatan-kepala {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+.grup-catatan {
+  border: 0;
+  border-top: 1px solid var(--garis);
+  margin: 0;
+  padding: 8px 0 2px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: 2px 14px;
+}
+.grup-catatan:first-of-type { border-top: 0; padding-top: 0; }
+/* display:grid di atas mengalahkan bawaan [hidden], jadi ditegaskan lagi */
+.grup-catatan[hidden] { display: none; }
+.grup-catatan > legend {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--biru);
+  text-transform: uppercase;
+  letter-spacing: .4px;
+  padding: 0;
+}
+/* label di dalam .bidang-isian dibuat huruf besar semua; kalimat catatan harus
+   tetap tampil apa adanya, jadi aturan itu dikembalikan di sini */
+.bidang-isian .pilih-catatan {
+  text-transform: none;
+  letter-spacing: normal;
+  font-weight: 400;
+  color: var(--teks);
+}
+.pilih-catatan {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  font-size: 13px;
+  line-height: 1.35;
+  padding: 4px 6px;
+  border-radius: 5px;
+  cursor: pointer;
+}
+.pilih-catatan:hover { background: var(--biru-muda); }
+.pilih-catatan input { margin-top: 2px; flex: 0 0 auto; }
+.pilih-catatan:has(input:checked) { background: var(--biru-muda); font-weight: 500; }
+
 /* ==========================================================================
    TAMPILAN LAYAR KECIL
    ========================================================================== */
@@ -487,6 +546,13 @@ input.isian-catatan { width: 160px; padding: 4px 6px; font-size: 12px; }
 
 /* --- ponsel --- */
 @media (max-width: 600px) {
+  /* satu lajur saja, dan sasaran ketuknya diperbesar */
+  .catatan-cepat { padding: 10px; }
+  .grup-catatan { grid-template-columns: 1fr; }
+  .pilih-catatan { padding: 8px 6px; font-size: 13px; }
+  .pilih-catatan input { width: 20px; height: 20px; }
+  .catatan-kepala .semua-catatan { width: 100%; }
+
   header.utama .merek small { font-size: 10px; }
   main { padding: 12px 10px; }
   .kartu { padding: 12px; border-radius: 6px; }
