@@ -86,6 +86,7 @@
         {% for t in semua_tahun %}
           <option value="{{ t.tahun }}" {{ 'selected' if th == t.tahun }}>{{ t.tahun }}</option>
         {% endfor %}
+        <option value="(tanpa tahun)" {{ 'selected' if th == '(tanpa tahun)' }}>(tanpa tahun)</option>
       </select>
     </div>
     <div class="bidang-isian">
@@ -179,6 +180,8 @@
   </form>
 
   <p class="kecil" style="margin:12px 0 0; display:flex; gap:8px; flex-wrap:wrap; align-items:center">
+    <a class="tombol kecil" href="/residu.xlsx{{ ('?' ~ request.url.query) if request.url.query }}"
+       title="Unduh data residu beserta catatannya sesuai saringan yang sedang dipakai">Unduh Excel</a>
     <a class="tombol kecil kedua" href="/residu.csv{{ ('?' ~ request.url.query) if request.url.query }}">Unduh CSV</a>
     <a class="tombol kecil kedua" href="/residu/rekap"
        title="Rekap harian pengecekan blanko per petugas dan per desa">Rekap pengecekan blanko</a>
@@ -308,8 +311,8 @@
               {{ r.nomor_hak or r.nomor_hak_asli }}
             {% endif %}
           </td>
-          <td class="kol-opsional">{{ r.tahun or '—' }}</td>
-          <td class="mono kecil kol-opsional">{{ r.nomor_berkas or '—' }}</td>
+          <td class="kol-opsional sel-tahun">{{ r.tahun or '—' }}</td>
+          <td class="mono kecil kol-opsional sel-berkas">{{ r.nomor_berkas or '—' }}</td>
           <td>{{ r.nama_desa or r.desa_teks or '—' }}</td>
           <td class="kecil redup kol-opsional">{{ r.nama_kecamatan or r.kecamatan_teks or '—' }}</td>
           <td class="kecil">{{ r.nama_pemegang or '—' }}</td>
@@ -360,6 +363,10 @@
 {# satu dialog Ubah per baris, ditaruh sesudah tabel karena <dialog> tidak
    boleh berada di dalam <tr> #}
 {% for r in baris %}{% include "bagian_ubah_residu.html" %}{% endfor %}
+{# saran isian Tahun di dialog Ubah untuk baris yang tahunnya masih kosong #}
+<datalist id="daftar-tahun-residu">
+  {% for t in semua_tahun %}<option value="{{ t.tahun }}">{% endfor %}
+</datalist>
 
 <script>
 (function () {
@@ -529,6 +536,16 @@ document.querySelectorAll('.modal-rinci').forEach(function (dialog) {
         var diubah = dialog.querySelector('.sel-diubah');
         if (diubah) { diubah.textContent = hasil.diubah; }
         if (hasil.ringkas) { pasangAngka(hasil.ringkas); }
+
+        // tahun/nomor berkas yang baru dilengkapi: tampilkan di tabel dan
+        // kunci isiannya, karena server hanya mengisi kolom yang masih kosong
+        [['tahun', '.sel-tahun'], ['nomor_berkas', '.sel-berkas']].forEach(function (p) {
+          if (!hasil[p[0]]) { return; }
+          var td = baris && baris.querySelector(p[1]);
+          if (td) { td.textContent = hasil[p[0]]; }
+          var isian = borang.querySelector('input[name="' + p[0] + '"]');
+          if (isian) { isian.value = hasil[p[0]]; isian.readOnly = true; isian.classList.add('terkunci'); }
+        });
 
         kabar.className = 'kabar-simpan berhasil';
         kabar.textContent = '✓ Tersimpan';

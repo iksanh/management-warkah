@@ -3,6 +3,7 @@
 Jalankan:  python app.py
 Lalu buka: http://localhost:8000   (dari komputer lain: http://<ip-server>:8000)
 """
+import io
 import os
 import re
 from datetime import date, datetime, timedelta
@@ -1449,6 +1450,10 @@ def kode_catatan(kon, form):
     return ",".join(unik) or None
 
 
+# label tab untuk baris residu yang kolom tahunnya kosong (NULL)
+TANPA_TAHUN = "(tanpa tahun)"
+
+
 def filter_residu(qp, kecuali=()):
     """Susun potongan WHERE + parameter untuk daftar residu.
 
@@ -1465,7 +1470,14 @@ def filter_residu(qp, kecuali=()):
                       "OR r.nama_pemegang LIKE ? OR r.nomor_berkas LIKE ? "
                       "OR r.no_seri_blanko LIKE ?)")
         par += [pola] * 6
-    for kolom, kunci in (("r.tahun", "tahun"), ("w.nama_kecamatan", "kecamatan"),
+    th = (qp.get("tahun") or "").strip() if "tahun" not in kecuali else ""
+    if th == TANPA_TAHUN:
+        # tab "(tanpa tahun)" hanyalah label untuk baris yang tahunnya kosong
+        syarat.append("r.tahun IS NULL")
+    elif th:
+        syarat.append("r.tahun = ?")
+        par.append(th)
+    for kolom, kunci in (("w.nama_kecamatan", "kecamatan"),
                          ("r.wilayah_id", "desa"), ("r.status", "status"),
                          ("r.petugas", "petugas")):
         nilai = (qp.get(kunci) or "").strip() if kunci not in kecuali else ""
@@ -1533,11 +1545,11 @@ def rekap_tahun(kon, qp):
     """
     where, par = filter_residu(qp, kecuali=("tahun",))
     return kon.execute(
-        "SELECT COALESCE(r.tahun, '(tanpa tahun)') tahun, COUNT(*) jumlah, "
+        "SELECT COALESCE(r.tahun, ?) tahun, COUNT(*) jumlah, "
         "SUM(CASE WHEN r.sudah_diserahkan = 1 THEN 1 ELSE 0 END) diserahkan, "
         "SUM(CASE WHEN r.bidang_id IS NOT NULL THEN 1 ELSE 0 END) cocok "
         "FROM residu r LEFT JOIN wilayah w ON w.id = r.wilayah_id" + where
-        + " GROUP BY r.tahun ORDER BY r.tahun", par).fetchall()
+        + " GROUP BY r.tahun ORDER BY r.tahun", [TANPA_TAHUN] + par).fetchall()
 
 
 async def residu(request: Request):
@@ -1608,6 +1620,29 @@ async def residu(request: Request):
         tersimpan=qp.get("tersimpan")))
 
 
+def isian_kosong(kon, rid, form):
+    """Tahun & nomor berkas yang boleh diisi petugas untuk satu baris residu.
+
+    Hanya berlaku bila kolomnya masih kosong - umumnya baris yang ditandai dari
+    katalog, yang tidak membawa tahun maupun nomor berkas. Nilai hasil impor
+    tidak pernah ditimpa dari sini. Kembaliannya {kolom: nilai} yang sah.
+    """
+    r = kon.execute("SELECT tahun, nomor_berkas FROM residu WHERE id = ?",
+                    (rid,)).fetchone()
+    ubah = {}
+    if r is None:
+        return ubah
+    th = (form.get("tahun") or "").strip()
+    if not (r["tahun"] or "").strip() and th:
+        if not re.fullmatch(r"\d{4}", th) or not 1960 <= int(th) <= date.today().year + 1:
+            raise ValueError("Tahun harus 4 angka, mis. 2021")
+        ubah["tahun"] = th
+    nb = (form.get("nomor_berkas") or "").strip()[:100]
+    if not (r["nomor_berkas"] or "").strip() and nb:
+        ubah["nomor_berkas"] = nb
+    return ubah
+
+
 def minta_json(request: Request) -> bool:
     """True bila borangnya dikirim lewat fetch, bukan pengiriman halaman biasa.
 
@@ -1638,6 +1673,8 @@ def ringkas_baris(kon, rid, kembali_ke=""):
         "diubah": ("%s oleh %s" % (r["diubah_pada"], r["diubah_oleh"] or "-")
                    if r["diubah_pada"] else "belum pernah"),
         "petugas": r["petugas"] or "",
+        "tahun": r["tahun"] or "",
+        "nomor_berkas": r["nomor_berkas"] or "",
         "ringkas": {
             "jumlah": ringkas["jumlah"],
             "diserahkan": ringkas["diserahkan"] or 0,
@@ -1671,13 +1708,24 @@ async def simpan_residu(request: Request):
             return JSONResponse({"ok": False, "pesan": "Data residu tidak ditemukan"},
                                 status_code=404)
         return Response("Data residu tidak ditemukan", status_code=404)
+    try:
+        lengkapi = isian_kosong(kon, rid, form)
+    except ValueError as galat:
+        kon.close()
+        if minta_json(request):
+            return JSONResponse({"ok": False, "pesan": str(galat)}, status_code=400)
+        return Response(str(galat), status_code=400)
     kon.execute(
         "UPDATE residu SET %s, sudah_diserahkan = ?, diubah_oleh = ?, "
         "diubah_pada = ? WHERE id = ?"
-        % ", ".join("%s = ?" % k for k in KOLOM_KERJA),
-        nilai + [serah, siapa or None, sekarang(), rid])
+        % ", ".join("%s = ?" % k for k in KOLOM_KERJA + list(lengkapi)),
+        nilai + list(lengkapi.values()) + [serah, siapa or None, sekarang(), rid])
     tulis_log(kon, siapa, "Simpan residu", None,
               "%s: %s" % (ada["nomor_hak"] or "-", isi(form, "status") or "-"))
+    if lengkapi:
+        tulis_log(kon, siapa, "Lengkapi tahun/berkas residu", None,
+                  "%s: %s" % (ada["nomor_hak"] or "-", ", ".join(
+                      "%s=%s" % kv for kv in lengkapi.items())))
     kon.commit()
 
     tujuan = form.get("kembali_ke") or "/residu"
@@ -1969,8 +2017,12 @@ JUDUL_RESIDU_CSV = ["Tahun", "Nomor_Berkas", "Nomor_Hak", "Nomor_Hak_Asli",
                     "Blanko_Tanggal", "Cocok_Dengan_Bidang", "Surat_Ukur", "NIB"]
 
 
-async def residu_csv(request: Request):
-    qp = request.query_params
+def data_unduh_residu(qp):
+    """Baris residu untuk diunduh (CSV/Excel), mengikuti saringan halaman.
+
+    Kembaliannya daftar tuple sejajar JUDUL_RESIDU_CSV. Catatan baku berupa
+    daftar kalimat (bukan kode) supaya tiap format bisa merangkainya sendiri.
+    """
     where, par = filter_residu(qp)
     kon = db.sambung()
     baris = kon.execute(
@@ -1978,30 +2030,144 @@ async def residu_csv(request: Request):
         "r.nomor_hak", par).fetchall()
     peta = {c["kode"]: c["teks"] for c in daftar_catatan(kon, semua=True)}
     kon.close()
+    return [(
+        r["tahun"], r["nomor_berkas"], r["nomor_hak"], r["nomor_hak_asli"],
+        r["nama_kecamatan"] or r["kecamatan_teks"],
+        r["nama_desa"] or r["desa_teks"], r["nama_pemegang"],
+        r["no_seri_blanko"], r["luas"],
+        "Sudah" if r["sudah_diserahkan"] else "Belum",
+        r["tipologi"], r["keterangan"], r["status"], r["tindak_lanjut"],
+        r["petugas"], r["tanggal_serah"], r["penerima"],
+        [peta.get(k, k) for k in (r["catatan_kode"] or "").split(",") if k],
+        r["catatan"],
+        r["blanko_ada"] or "Belum Dicek", r["blanko_petugas"],
+        r["blanko_tanggal"],
+        "Ya" if r["bidang_id"] else "Belum", r["surat_ukur"], r["nib"])
+        for r in baris]
 
+
+def nama_unduh_residu(qp, ekstensi):
+    """Nama berkas unduhan; ikut menyebut tahun supaya unduhan tiap tahun tidak tertukar."""
+    th = (qp.get("tahun") or "").strip()
+    if th == TANPA_TAHUN:
+        akhir = "_tanpa_tahun"
+    else:
+        th = re.sub(r"[^0-9]", "", th)[:4]
+        akhir = ("_" + th) if th else ""
+    return "residu_ptsl%s.%s" % (akhir, ekstensi)
+
+
+async def residu_csv(request: Request):
+    qp = request.query_params
+    i_catatan = JUDUL_RESIDU_CSV.index("Catatan_Baku")
     keluar = [";".join(JUDUL_RESIDU_CSV)]
-    for r in baris:
-        keluar.append(";".join(sel_csv(v) for v in (
-            r["tahun"], r["nomor_berkas"], r["nomor_hak"], r["nomor_hak_asli"],
-            r["nama_kecamatan"] or r["kecamatan_teks"],
-            r["nama_desa"] or r["desa_teks"], r["nama_pemegang"],
-            r["no_seri_blanko"], r["luas"],
-            "Sudah" if r["sudah_diserahkan"] else "Belum",
-            r["tipologi"], r["keterangan"], r["status"], r["tindak_lanjut"],
-            r["petugas"], r["tanggal_serah"], r["penerima"],
-            " | ".join(peta.get(k, k) for k in (r["catatan_kode"] or "").split(",") if k),
-            r["catatan"],
-            r["blanko_ada"] or "Belum Dicek", r["blanko_petugas"],
-            r["blanko_tanggal"],
-            "Ya" if r["bidang_id"] else "Belum", r["surat_ukur"], r["nib"])))
+    for baris in data_unduh_residu(qp):
+        baris = list(baris)
+        baris[i_catatan] = " | ".join(baris[i_catatan])
+        keluar.append(";".join(sel_csv(v) for v in baris))
 
-    isi_csv = "﻿" + "\r\n".join(keluar) + "\r\n"
-    # nama berkas ikut menyebut tahun supaya unduhan tiap tahun tidak tertukar
-    th = re.sub(r"[^0-9]", "", (qp.get("tahun") or ""))[:4]
+    isi_csv = "\ufeff" + "\r\n".join(keluar) + "\r\n"
     return Response(isi_csv.encode("utf-8"), media_type="text/csv; charset=utf-8",
                     headers={"Content-Disposition":
-                             'attachment; filename="residu_ptsl%s.csv"'
-                             % (("_" + th) if th else "")})
+                             'attachment; filename="%s"' % nama_unduh_residu(qp, "csv")})
+
+
+# lebar kolom lembar Excel residu (satuan lebar huruf), sejajar JUDUL_RESIDU_CSV
+LEBAR_RESIDU_XLSX = [7, 16, 22, 22, 16, 18, 28, 16, 9, 10, 14, 30, 22, 20, 16, 13,
+                     20, 50, 40, 12, 16, 13, 10, 14, 16]
+
+
+def saringan_terpasang(qp):
+    """Daftar (nama saringan, nilai) yang sedang aktif, untuk lembar keterangan."""
+    kon = db.sambung()
+    hasil = []
+    for kunci, label in (("q", "Kata kunci"), ("tahun", "Tahun"),
+                         ("kecamatan", "Kecamatan"), ("desa", "Desa"),
+                         ("status", "Status"), ("petugas", "Petugas"),
+                         ("tipologi", "Tipologi"), ("catatan", "Catatan baku"),
+                         ("serah", "Diserahkan"), ("blanko", "Blanko"),
+                         ("cocok", "Cocok dengan bidang")):
+        nilai = (qp.get(kunci) or "").strip()
+        if not nilai:
+            continue
+        if kunci == "desa" and nilai.isdigit():
+            w = kon.execute("SELECT nama_desa, nama_kecamatan FROM wilayah WHERE id = ?",
+                            (int(nilai),)).fetchone()
+            nilai = "%s (%s)" % (w["nama_desa"], w["nama_kecamatan"]) if w else nilai
+        elif kunci == "catatan":
+            c = kon.execute("SELECT teks FROM catatan_baku WHERE kode = ?",
+                            (nilai,)).fetchone()
+            nilai = "%s - %s" % (nilai, c["teks"]) if c else nilai
+        hasil.append((label, nilai))
+    if (qp.get("tipologi_kosong") or "") == "1" and not qp.get("tipologi"):
+        hasil.append(("Tipologi", "belum diisi"))
+    kon.close()
+    return hasil
+
+
+async def residu_xlsx(request: Request):
+    """Unduh daftar residu beserta catatannya sebagai Excel, sesuai saringan."""
+    from openpyxl import Workbook
+    from openpyxl.styles import Alignment, Font, PatternFill
+    from openpyxl.utils import get_column_letter
+
+    qp = request.query_params
+    data = data_unduh_residu(qp)
+    i_catatan = JUDUL_RESIDU_CSV.index("Catatan_Baku")
+    i_luas = JUDUL_RESIDU_CSV.index("Luas")
+
+    buku = Workbook()
+    ls = buku.active
+    ls.title = "Residu"
+    ls.append([j.replace("_", " ") for j in JUDUL_RESIDU_CSV])
+    tebal, isi_kepala = Font(bold=True, color="FFFFFF"), PatternFill("solid", fgColor="1F4E79")
+    for sel in ls[1]:
+        sel.font, sel.fill = tebal, isi_kepala
+        sel.alignment = Alignment(vertical="center", wrap_text=True)
+    for baris in data:
+        baris = list(baris)
+        # tiap catatan baku satu baris di dalam sel supaya mudah dibaca
+        baris[i_catatan] = "\n".join(baris[i_catatan]) or None
+        # catatan dari textarea membawa \r\n; Excel cukup \n untuk ganti baris
+        ls.append([v.replace("\r\n", "\n") if isinstance(v, str) else v for v in baris])
+
+    atas = Alignment(vertical="top")
+    bungkus = Alignment(vertical="top", wrap_text=True)
+    lebar_bungkus = {i_catatan + 1, JUDUL_RESIDU_CSV.index("Catatan") + 1,
+                     JUDUL_RESIDU_CSV.index("Keterangan") + 1}
+    for no, lebar in enumerate(LEBAR_RESIDU_XLSX, start=1):
+        ls.column_dimensions[get_column_letter(no)].width = lebar
+    for baris in ls.iter_rows(min_row=2):
+        for sel in baris:
+            sel.alignment = bungkus if sel.column in lebar_bungkus else atas
+        baris[i_luas].number_format = "#,##0"
+    ls.freeze_panes = "D2"
+    if data:
+        ls.auto_filter.ref = ls.dimensions
+
+    # lembar kedua mencatat saringan yang dipakai, supaya berkasnya tetap
+    # bisa dipahami sesudah dikirim ke orang lain
+    ket = buku.create_sheet("Keterangan")
+    ket.append(["Residu PTSL"])
+    ket["A1"].font = Font(bold=True, size=13)
+    ket.append(["Diunduh", sekarang()])
+    ket.append(["Oleh", petugas_aktif(request) or "-"])
+    ket.append(["Jumlah baris", len(data)])
+    ket.append([])
+    ket.append(["Saringan"])
+    ket["A6"].font = Font(bold=True)
+    for label, nilai in saringan_terpasang(qp) or [("(tanpa saringan)", "semua data")]:
+        ket.append([label, nilai])
+    ket.column_dimensions["A"].width = 22
+    ket.column_dimensions["B"].width = 60
+
+    wadah = io.BytesIO()
+    buku.save(wadah)
+    return Response(
+        wadah.getvalue(),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition":
+                 'attachment; filename="%s"' % nama_unduh_residu(qp, "xlsx")})
 
 
 async def simpan_tipologi(request: Request):
@@ -2537,6 +2703,7 @@ rute = [
     Route("/impor/jalankan", jalankan_impor, methods=["POST"]),
     Route("/residu", residu),
     Route("/residu.csv", residu_csv),
+    Route("/residu.xlsx", residu_xlsx),
     Route("/residu/rekap", rekap_blanko),
     Route("/residu/rekap.csv", rekap_blanko_csv),
     Route("/residu/centang", centang_blanko, methods=["POST"]),

@@ -883,3 +883,18 @@ tr.baris-tersimpan > td { animation: sorot-simpan 2s ease-out; }
   table input[type=checkbox] { width: 24px; height: 24px; }
   tbody tr { min-height: 44px; }
 }
+
+/* dialog Ubah residu: isian tahun & nomor berkas untuk baris yang masih kosong */
+.lengkapi-residu {
+  border: 1px dashed var(--oranye);
+  border-radius: var(--radius);
+  background: #fff8ec;
+  padding: 8px 12px 10px;
+  margin: 0 0 12px;
+}
+.lengkapi-residu > legend {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--oranye);
+  padding: 0 4px;
+}
