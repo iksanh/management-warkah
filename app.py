@@ -1461,6 +1461,13 @@ def filter_residu(qp, kecuali=()):
     jumlah per tahun tanpa ikut terpotong oleh tahun yang sedang dipilih.
     """
     syarat, par = [], []
+    # bawaannya hanya residu aktif: baris yang berkasnya tidak ditemukan
+    # disisihkan (bukan dihapus) dan hanya tampil bila diminta
+    tampil = (qp.get("tampil") or "").strip() if "tampil" not in kecuali else "semua"
+    if tampil == "tidak_ditemukan":
+        syarat.append("r.tidak_ditemukan = 1")
+    elif tampil != "semua":
+        syarat.append("r.tidak_ditemukan = 0")
     q = (qp.get("q") or "").strip() if "q" not in kecuali else ""
     if q:
         pola = "%" + q + "%"
@@ -1568,6 +1575,13 @@ async def residu(request: Request):
         "r.nomor_hak LIMIT ? OFFSET ?", par + [PER_HAL, (hal - 1) * PER_HAL]).fetchall()
 
     per_tahun = rekap_tahun(kon, qp)
+    # jumlah tiap pilihan "Tampilkan", mengikuti saringan lain yang aktif
+    w_semua, p_semua = filter_residu(qp, kecuali=("tampil",))
+    per_tampil = kon.execute(
+        "SELECT COALESCE(SUM(r.tidak_ditemukan = 0), 0) aktif, "
+        "COALESCE(SUM(r.tidak_ditemukan = 1), 0) tidak_ditemukan, COUNT(*) semua "
+        "FROM residu r LEFT JOIN wilayah w ON w.id = r.wilayah_id" + w_semua,
+        p_semua).fetchone()
     # daftar isian tahun sengaja tidak ikut disaring, supaya tahun yang sedang
     # dipilih tetap ada di dalam kotaknya walau saringan lain mengosongkannya
     semua_tahun = kon.execute(
@@ -1610,7 +1624,8 @@ async def residu(request: Request):
     return templates.TemplateResponse(request, "residu.html", konteks(
         request, baris=baris, jumlah=jumlah, ringkas=ringkas, hal=hal,
         per_hal=PER_HAL, halaman_akhir=max(1, (jumlah + PER_HAL - 1) // PER_HAL),
-        per_tahun=per_tahun, semua_tahun=semua_tahun,
+        per_tahun=per_tahun, semua_tahun=semua_tahun, per_tampil=per_tampil,
+        tampil=(qp.get("tampil") or "").strip(),
         kecamatan=kecamatan, desa=desa, desa_tampil=desa_tampil,
         kec_terpilih=kec_terpilih, daftar_tipologi=daftar_tipologi,
         hitung_tipologi=hitung_tipologi, daftar_petugas=daftar_petugas,
@@ -1643,6 +1658,35 @@ def isian_kosong(kon, rid, form):
     return ubah
 
 
+def ubah_tidak_ditemukan(kon, rid, form, siapa):
+    """Perubahan tanda "berkas tidak ditemukan" dari borang Ubah.
+
+    Kembaliannya ({kolom: nilai}, teks log atau None). Siapa & kapan hanya
+    dicatat saat tanda dipasang, supaya menyunting alasannya belakangan tidak
+    menggeser jejak petugas yang pertama kali memeriksa.
+    """
+    if form.get("isian_tidak_ditemukan") != "1":     # borang lain: tidak disentuh
+        return {}, None
+    r = kon.execute("SELECT tidak_ditemukan, tidak_ditemukan_alasan FROM residu "
+                    "WHERE id = ?", (rid,)).fetchone()
+    pasang = form.get("tidak_ditemukan") == "1"
+    alasan = (form.get("tidak_ditemukan_alasan") or "").strip()[:500] or None
+    if pasang and not r["tidak_ditemukan"]:
+        return ({"tidak_ditemukan": 1, "tidak_ditemukan_alasan": alasan,
+                 "tidak_ditemukan_oleh": siapa or None,
+                 "tidak_ditemukan_pada": sekarang()},
+                "Tandai berkas tidak ditemukan")
+    if pasang:
+        if alasan == r["tidak_ditemukan_alasan"]:
+            return {}, None
+        return {"tidak_ditemukan_alasan": alasan}, "Ubah alasan berkas tidak ditemukan"
+    if r["tidak_ditemukan"]:
+        return ({"tidak_ditemukan": 0, "tidak_ditemukan_alasan": None,
+                 "tidak_ditemukan_oleh": None, "tidak_ditemukan_pada": None},
+                "Batalkan tanda berkas tidak ditemukan")
+    return {}, None
+
+
 def minta_json(request: Request) -> bool:
     """True bila borangnya dikirim lewat fetch, bukan pengiriman halaman biasa.
 
@@ -1666,9 +1710,16 @@ def ringkas_baris(kon, rid, kembali_ke=""):
         r=r, peta_catatan=peta)
     where, par = filter_residu(QueryParams(urlsplit(kembali_ke).query))
     ringkas = angka_residu(kon, where, par)
+    # baris yang baru ditandai bisa jadi tidak lagi masuk saringan halaman
+    # (mis. ditandai berkas tidak ditemukan saat melihat residu aktif)
+    masuk = kon.execute(
+        "SELECT 1 FROM residu r LEFT JOIN wilayah w ON w.id = r.wilayah_id"
+        + (where + " AND " if where else " WHERE ") + "r.id = ?",
+        list(par) + [rid]).fetchone() is not None
     return {
         "ok": True,
         "id": rid,
+        "masuk_saringan": masuk,
         "sel_status": sel.strip(),
         "diubah": ("%s oleh %s" % (r["diubah_pada"], r["diubah_oleh"] or "-")
                    if r["diubah_pada"] else "belum pernah"),
@@ -1715,17 +1766,22 @@ async def simpan_residu(request: Request):
         if minta_json(request):
             return JSONResponse({"ok": False, "pesan": str(galat)}, status_code=400)
         return Response(str(galat), status_code=400)
+    tanda, log_tanda = ubah_tidak_ditemukan(kon, rid, form, siapa)
+    tambahan = {**lengkapi, **tanda}
     kon.execute(
         "UPDATE residu SET %s, sudah_diserahkan = ?, diubah_oleh = ?, "
         "diubah_pada = ? WHERE id = ?"
-        % ", ".join("%s = ?" % k for k in KOLOM_KERJA + list(lengkapi)),
-        nilai + list(lengkapi.values()) + [serah, siapa or None, sekarang(), rid])
+        % ", ".join("%s = ?" % k for k in KOLOM_KERJA + list(tambahan)),
+        nilai + list(tambahan.values()) + [serah, siapa or None, sekarang(), rid])
     tulis_log(kon, siapa, "Simpan residu", None,
               "%s: %s" % (ada["nomor_hak"] or "-", isi(form, "status") or "-"))
     if lengkapi:
         tulis_log(kon, siapa, "Lengkapi tahun/berkas residu", None,
                   "%s: %s" % (ada["nomor_hak"] or "-", ", ".join(
                       "%s=%s" % kv for kv in lengkapi.items())))
+    if log_tanda:
+        tulis_log(kon, siapa, log_tanda, None, "%s: %s" % (
+            ada["nomor_hak"] or "-", tanda.get("tidak_ditemukan_alasan") or "-"))
     kon.commit()
 
     tujuan = form.get("kembali_ke") or "/residu"
@@ -2014,7 +2070,9 @@ JUDUL_RESIDU_CSV = ["Tahun", "Nomor_Berkas", "Nomor_Hak", "Nomor_Hak_Asli",
                     "Luas", "Sudah_Diserahkan", "Tipologi", "Keterangan",
                     "Status", "Tindak_Lanjut", "Petugas", "Tanggal_Serah",
                     "Penerima", "Catatan_Baku", "Catatan", "Blanko_Ada", "Blanko_Petugas",
-                    "Blanko_Tanggal", "Cocok_Dengan_Bidang", "Surat_Ukur", "NIB"]
+                    "Blanko_Tanggal", "Cocok_Dengan_Bidang", "Surat_Ukur", "NIB",
+                    "Berkas_Tidak_Ditemukan", "Alasan_Tidak_Ditemukan",
+                    "Ditandai_Oleh", "Ditandai_Pada"]
 
 
 def data_unduh_residu(qp):
@@ -2042,7 +2100,9 @@ def data_unduh_residu(qp):
         r["catatan"],
         r["blanko_ada"] or "Belum Dicek", r["blanko_petugas"],
         r["blanko_tanggal"],
-        "Ya" if r["bidang_id"] else "Belum", r["surat_ukur"], r["nib"])
+        "Ya" if r["bidang_id"] else "Belum", r["surat_ukur"], r["nib"],
+        "Ya" if r["tidak_ditemukan"] else "Tidak", r["tidak_ditemukan_alasan"],
+        r["tidak_ditemukan_oleh"], r["tidak_ditemukan_pada"])
         for r in baris]
 
 
@@ -2074,13 +2134,18 @@ async def residu_csv(request: Request):
 
 # lebar kolom lembar Excel residu (satuan lebar huruf), sejajar JUDUL_RESIDU_CSV
 LEBAR_RESIDU_XLSX = [7, 16, 22, 22, 16, 18, 28, 16, 9, 10, 14, 30, 22, 20, 16, 13,
-                     20, 50, 40, 12, 16, 13, 10, 14, 16]
+                     20, 50, 40, 12, 16, 13, 10, 14, 16, 12, 36, 16, 18]
 
 
 def saringan_terpasang(qp):
     """Daftar (nama saringan, nilai) yang sedang aktif, untuk lembar keterangan."""
     kon = db.sambung()
-    hasil = []
+    # selalu disebut, karena bawaannya baris berkas tidak ditemukan tidak ikut
+    hasil = [("Tampilkan", {
+        "tidak_ditemukan": "Hanya berkas tidak ditemukan",
+        "semua": "Semua baris (termasuk berkas tidak ditemukan)",
+    }.get((qp.get("tampil") or "").strip(),
+          "Residu aktif (berkas tidak ditemukan tidak ikut)"))]
     for kunci, label in (("q", "Kata kunci"), ("tahun", "Tahun"),
                          ("kecamatan", "Kecamatan"), ("desa", "Desa"),
                          ("status", "Status"), ("petugas", "Petugas"),

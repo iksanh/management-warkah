@@ -183,6 +183,28 @@
                       Sertipikat sudah diserahkan ke pemohon
                     </label>
                   </p>
+                  {# berkas yang dicari tetapi tidak ada: barisnya tetap disimpan,
+                     hanya dikeluarkan dari daftar residu aktif #}
+                  <fieldset class="tanda-tidak-ditemukan">
+                    <input type="hidden" name="isian_tidak_ditemukan" value="1">
+                    <label style="font-weight:500">
+                      <input type="checkbox" name="tidak_ditemukan" value="1"
+                             {{ 'checked' if r.tidak_ditemukan }}>
+                      Berkas tidak ditemukan saat diperiksa
+                    </label>
+                    <input type="text" name="tidak_ditemukan_alasan" maxlength="500"
+                           class="lebar-penuh" value="{{ r.tidak_ditemukan_alasan or '' }}"
+                           placeholder="keterangan, mis. sudah dicari di lemari A & B, tidak ada">
+                    <p class="kecil redup" style="margin:4px 0 0">
+                      {% if r.tidak_ditemukan %}
+                        Ditandai {{ r.tidak_ditemukan_pada or '-' }} oleh {{ r.tidak_ditemukan_oleh or '-' }}.
+                        Hapus centangnya bila berkasnya ternyata ketemu.
+                      {% else %}
+                        Baris tidak dihapus; hanya disembunyikan dari daftar residu aktif
+                        dan bisa dilihat lagi lewat pilihan "Tampilkan".
+                      {% endif %}
+                    </p>
+                  </fieldset>
                 </div>
               </div>
     </div>

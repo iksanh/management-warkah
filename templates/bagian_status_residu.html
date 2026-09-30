@@ -1,6 +1,9 @@
 {# Isi sel Status pada tabel Residu. Dipakai dua kali: saat halaman disusun,
    dan saat satu baris disimpan tanpa memuat ulang halaman - jawabannya berisi
    potongan ini supaya penandanya tidak perlu disusun ulang di JavaScript. #}
+{% if r.tidak_ditemukan %}
+  <span class="tanda merah" title="{{ ('Alasan: ' ~ r.tidak_ditemukan_alasan ~ ' · ') if r.tidak_ditemukan_alasan }}ditandai {{ r.tidak_ditemukan_pada or '-' }} oleh {{ r.tidak_ditemukan_oleh or '-' }}">Berkas tidak ditemukan</span>
+{% endif %}
 {% if r.sudah_diserahkan %}
   <span class="tanda hijau">Diserahkan</span>
 {% else %}

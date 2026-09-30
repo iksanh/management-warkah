@@ -10,6 +10,33 @@
   Nomor haknya dicocokkan satu-lawan-satu dengan data bidang di katalog.
 </p>
 
+{# pilihan Tampilkan: bawaannya residu aktif; baris yang berkasnya tidak
+   ditemukan disisihkan, bukan dihapus. Saringan lain tetap terpasang. #}
+{% set sisa_tampil = [] %}
+{% for k, v in dasar.items() if k not in ('tampil', 'hal') %}
+  {% set _ = sisa_tampil.append(k ~ '=' ~ (v | urlencode)) %}
+{% endfor %}
+{% set ekor_tampil = ('&' ~ (sisa_tampil | join('&'))) if sisa_tampil else '' %}
+<div class="tab tab-tampil">
+  <span class="kecil redup">Tampilkan:</span>
+  <a href="/residu{{ '?' ~ (sisa_tampil | join('&')) if sisa_tampil }}"
+     class="{{ 'aktif' if tampil not in ('tidak_ditemukan', 'semua') }}">
+    Residu aktif ({{ per_tampil.aktif | angka }})
+  </a>
+  <a href="/residu?tampil=tidak_ditemukan{{ ekor_tampil }}"
+     class="{{ 'aktif' if tampil == 'tidak_ditemukan' }}">
+    Berkas tidak ditemukan ({{ per_tampil.tidak_ditemukan | angka }})
+  </a>
+  <a href="/residu?tampil=semua{{ ekor_tampil }}"
+     class="{{ 'aktif' if tampil == 'semua' }}">Semua ({{ per_tampil.semua | angka }})</a>
+</div>
+{% if tampil == 'tidak_ditemukan' %}
+  <div class="pesan awas">
+    Baris di bawah ini <strong>tidak dihitung sebagai residu aktif</strong> karena berkasnya
+    tidak ditemukan saat diperiksa. Bila berkasnya ketemu, buka <em>Ubah</em> lalu hapus centangnya.
+  </div>
+{% endif %}
+
 {# tautan tab menjaga saringan lain tetap terpasang, hanya tahun yang berganti #}
 {% set sisa = [] %}
 {% for k, v in dasar.items() if k not in ('tahun', 'hal') %}
@@ -536,6 +563,15 @@ document.querySelectorAll('.modal-rinci').forEach(function (dialog) {
         var diubah = dialog.querySelector('.sel-diubah');
         if (diubah) { diubah.textContent = hasil.diubah; }
         if (hasil.ringkas) { pasangAngka(hasil.ringkas); }
+
+        // baris yang tidak lagi masuk saringan (mis. baru ditandai berkas tidak
+        // ditemukan) dipudarkan, bukan langsung hilang, supaya petugas tahu
+        // barisnya pindah dan bukan terhapus; hilang sendiri saat halaman dimuat ulang
+        if (baris) {
+          baris.classList.toggle('baris-keluar', hasil.masuk_saringan === false);
+          baris.title = hasil.masuk_saringan === false
+            ? 'Sudah tidak masuk saringan ini; hilang dari daftar saat halaman dimuat ulang' : '';
+        }
 
         // tahun/nomor berkas yang baru dilengkapi: tampilkan di tabel dan
         // kunci isiannya, karena server hanya mengisi kolom yang masih kosong

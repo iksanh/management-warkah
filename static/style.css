@@ -898,3 +898,24 @@ tr.baris-tersimpan > td { animation: sorot-simpan 2s ease-out; }
   color: var(--oranye);
   padding: 0 4px;
 }
+
+/* pilihan Tampilkan di halaman residu: residu aktif / berkas tidak ditemukan / semua */
+.tab-tampil { align-items: center; margin-bottom: 10px; }
+.tab-tampil a { padding: 5px 12px; font-size: 13px; }
+
+/* dialog Ubah residu: tanda berkas tidak ditemukan */
+.tanda-tidak-ditemukan {
+  border: 1px solid var(--garis);
+  border-radius: var(--radius);
+  padding: 8px 12px 10px;
+  margin: 0 0 4px;
+}
+.tanda-tidak-ditemukan > label { display: block; margin-bottom: 6px; }
+.tanda-tidak-ditemukan:has(input[name="tidak_ditemukan"]:checked) {
+  border-color: var(--merah);
+  background: #fbeeee;
+}
+
+/* baris yang baru ditandai dan tidak lagi masuk saringan halaman */
+tr.baris-keluar td { opacity: .45; }
+tr.baris-keluar td:first-child { box-shadow: inset 3px 0 0 var(--merah); }

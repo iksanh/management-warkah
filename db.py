@@ -339,6 +339,12 @@ TAMBAHAN_KOLOM = {
         ("blanko_tempat", "TEXT"),
         ("blanko_diubah", "TEXT"),
         ("catatan_kode", "TEXT"),
+        # berkas residu yang dicari tetapi tidak ditemukan: barisnya tidak
+        # dihapus, hanya dikeluarkan dari daftar residu aktif
+        ("tidak_ditemukan", "INTEGER NOT NULL DEFAULT 0"),
+        ("tidak_ditemukan_alasan", "TEXT"),
+        ("tidak_ditemukan_oleh", "TEXT"),
+        ("tidak_ditemukan_pada", "TEXT"),
     ],
     "petugas": [
         ("username", "TEXT"),
@@ -360,6 +366,8 @@ def migrasi(kon):
     kon.execute("CREATE UNIQUE INDEX IF NOT EXISTS ix_petugas_username "
                 "ON petugas (username) WHERE username IS NOT NULL")
     kon.execute("CREATE INDEX IF NOT EXISTS ix_residu_blanko ON residu (blanko_ada)")
+    kon.execute("CREATE INDEX IF NOT EXISTS ix_residu_tidak_ditemukan "
+                "ON residu (tidak_ditemukan)")
     kon.commit()
 
 
