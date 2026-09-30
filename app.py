@@ -2235,6 +2235,27 @@ async def residu_xlsx(request: Request):
                  'attachment; filename="%s"' % nama_unduh_residu(qp, "xlsx")})
 
 
+async def residu_pdf(request: Request):
+    """Unduh daftar residu sebagai PDF ringkas untuk pimpinan, sesuai saringan."""
+    qp = request.query_params
+    j = {nama: JUDUL_RESIDU_CSV.index(nama) for nama in (
+        "Tahun", "Nomor_Berkas", "Nomor_Hak", "Desa", "Kecamatan", "Nama_Pemegang",
+        "Luas", "Catatan_Baku", "Catatan")}
+    data = [{
+        "tahun": b[j["Tahun"]], "nomor_berkas": b[j["Nomor_Berkas"]],
+        "nomor_hak": b[j["Nomor_Hak"]], "desa": b[j["Desa"]],
+        "kecamatan": b[j["Kecamatan"]], "pemegang": b[j["Nama_Pemegang"]],
+        "luas": b[j["Luas"]], "catatan_baku": b[j["Catatan_Baku"]],
+        "catatan": b[j["Catatan"]],
+    } for b in data_unduh_residu(qp)]
+    isi = laporan.buat_pdf_residu(data, saringan_terpasang(qp),
+                                  dicetak_oleh=petugas_aktif(request),
+                                  dicetak_pada=sekarang())
+    return Response(isi, media_type="application/pdf",
+                    headers={"Content-Disposition":
+                             'inline; filename="%s"' % nama_unduh_residu(qp, "pdf")})
+
+
 async def simpan_tipologi(request: Request):
     """Isi/ubah keterangan kode tipologi; keterangannya tidak ada di berkas Excel."""
     if not is_admin(request):
@@ -2769,6 +2790,7 @@ rute = [
     Route("/residu", residu),
     Route("/residu.csv", residu_csv),
     Route("/residu.xlsx", residu_xlsx),
+    Route("/residu.pdf", residu_pdf),
     Route("/residu/rekap", rekap_blanko),
     Route("/residu/rekap.csv", rekap_blanko_csv),
     Route("/residu/centang", centang_blanko, methods=["POST"]),

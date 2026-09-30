@@ -10,8 +10,8 @@ from reportlab.lib.enums import TA_CENTER, TA_RIGHT
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import mm
-from reportlab.platypus import (KeepTogether, PageBreak, Paragraph, SimpleDocTemplate,
-                                Spacer, Table, TableStyle)
+from reportlab.platypus import (KeepTogether, LongTable, PageBreak, Paragraph,
+                                SimpleDocTemplate, Spacer, Table, TableStyle)
 
 KANTOR = "Kantor Pertanahan Kabupaten Bone Bolango"
 BULAN = ["", "Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli",
@@ -316,3 +316,200 @@ def buat_pdf(daftar, dari=None, sampai=None, dicetak_oleh=None, dicetak_pada="")
 
     dok.build(isi, onFirstPage=_kaki, onLaterPages=_kaki)
     return penampung.getvalue()
+
+
+# ------------------------------------------------------------ laporan residu
+# Daftar residu PTSL untuk pimpinan: A4 lanskap, ringkasan di halaman pertama,
+# lalu rincian per berkas yang dikelompokkan per tahun anggaran.
+
+from xml.sax.saxutils import escape as _esc
+
+from reportlab.lib.pagesizes import landscape
+from reportlab.pdfgen import canvas as _canvas
+
+A4_LANSKAP = landscape(A4)
+BIRU_MUDA = colors.HexColor("#dbeafe")
+SEL_KECIL = ParagraphStyle("sel_kecil", parent=SEL, fontSize=7.5, leading=9.2)
+KEPALA_TENGAH = ParagraphStyle("kepala_tengah", parent=KEPALA, alignment=TA_CENTER)
+SUBJUDUL_KIRI = ParagraphStyle("subjudul_kiri", parent=ISI, fontName="Helvetica-Bold",
+                              textColor=BIRU, spaceAfter=4)
+
+
+def _p(teks, gaya=SEL_KECIL, kosong="-"):
+    """Sel Paragraph dengan teks yang aman untuk markup reportlab."""
+    teks = "" if teks is None else str(teks).strip()
+    if not teks:
+        return Paragraph(kosong, gaya)
+    return Paragraph(_esc(teks).replace("\r\n", "\n").replace("\n", "<br/>"), gaya)
+
+
+def _luas(v):
+    try:
+        return angka(round(float(v)))
+    except (TypeError, ValueError):
+        return "-"
+
+
+class _KanvasBernomor(_canvas.Canvas):
+    """Kanvas yang menulis "Halaman x dari y" di kaki tiap halaman.
+
+    Jumlah halaman baru diketahui setelah semua halaman tersusun, jadi setiap
+    halaman ditahan dulu lalu kakinya digambar saat berkas disimpan.
+    """
+
+    keterangan_kaki = ""
+
+    def __init__(self, *a, **kw):
+        super().__init__(*a, **kw)
+        self._halaman = []
+
+    def showPage(self):
+        self._halaman.append(dict(self.__dict__))
+        self._startPage()
+
+    def save(self):
+        total = len(self._halaman)
+        for keadaan in self._halaman:
+            self.__dict__.update(keadaan)
+            lebar = self._pagesize[0]
+            self.saveState()
+            self.setStrokeColor(ABU)
+            self.line(12 * mm, 11 * mm, lebar - 12 * mm, 11 * mm)
+            self.setFont("Helvetica", 7.5)
+            self.setFillColor(ABU_TUA)
+            self.drawString(12 * mm, 7 * mm, self.keterangan_kaki)
+            self.drawRightString(lebar - 12 * mm, 7 * mm, "Halaman %d dari %d"
+                                 % (self._pageNumber, total))
+            self.restoreState()
+            super().showPage()
+        super().save()
+
+
+def _tabel_rekap(judul, pasangan, total):
+    """Tabel kecil dua kolom (nama, jumlah) + porsi, untuk halaman ringkasan."""
+    baris = [[Paragraph(judul, KEPALA), Paragraph("Berkas", KEPALA_KANAN),
+              Paragraph("Porsi", KEPALA_KANAN)]]
+    for nama, n in pasangan:
+        porsi = (n / total * 100) if total else 0
+        baris.append([_p(nama, SEL), angka(n), ("%.1f%%" % porsi).replace(".", ",")])
+    baris.append(["JUMLAH", angka(total), "100,0%"])
+    return _tabel(baris, [50 * mm, 22 * mm, 20 * mm], rata_kanan=(1, 2))
+
+
+def buat_pdf_residu(data, saringan=(), dicetak_oleh=None, dicetak_pada=""):
+    """Kembalikan isi PDF (bytes) daftar residu.
+
+    ``data`` berisi dict dengan kunci tahun, nomor_berkas, nomor_hak, desa,
+    kecamatan, pemegang, luas, catatan_baku (daftar kalimat) dan catatan,
+    sudah terurut tahun lalu kecamatan, desa, nomor hak.
+    ``saringan`` berisi pasangan (label, nilai) saringan yang dipakai.
+    """
+    penampung = BytesIO()
+    dok = SimpleDocTemplate(
+        penampung, pagesize=A4_LANSKAP,
+        leftMargin=12 * mm, rightMargin=12 * mm,
+        topMargin=12 * mm, bottomMargin=16 * mm,
+        title="Daftar Residu PTSL", author=KANTOR)
+    kaki = "Dicetak %s%s - Aplikasi Warkah" % (
+        dicetak_pada, " oleh %s" % dicetak_oleh if dicetak_oleh else "")
+
+    total = len(data)
+    isi = [
+        Paragraph("DAFTAR RESIDU PTSL", JUDUL),
+        Paragraph(KANTOR, SUBJUDUL),
+        Paragraph("Keadaan per %s" % tanggal_id(dicetak_pada[:10]), SUBJUDUL),
+        Spacer(1, 8),
+    ]
+
+    # keterangan saringan supaya pembaca tahu cakupan datanya
+    ket = [["Jumlah berkas", ": %s berkas" % angka(total)]]
+    for label, nilai in saringan:
+        ket.append([label, ": %s" % nilai])
+    t = Table([[Paragraph(_esc(a), ISI), Paragraph(_esc(b), ISI)] for a, b in ket],
+              colWidths=[40 * mm, 200 * mm], hAlign="LEFT")
+    t.setStyle(TableStyle([
+        ("TOPPADDING", (0, 0), (-1, -1), 1), ("BOTTOMPADDING", (0, 0), (-1, -1), 1),
+        ("LINEBELOW", (0, -1), (-1, -1), 0.6, ABU),
+    ]))
+    isi.append(t)
+
+    if not data:
+        isi.append(Spacer(1, 12))
+        isi.append(Paragraph("Tidak ada data residu untuk saringan ini.", ISI))
+        dok.build(isi, canvasmaker=_kanvas(kaki))
+        return penampung.getvalue()
+
+    # ---- ringkasan: per tahun dan per kecamatan, berdampingan
+    per_tahun, per_kec = {}, {}
+    ada_catatan = 0
+    for r in data:
+        th = r["tahun"] or "(tanpa tahun)"
+        per_tahun[th] = per_tahun.get(th, 0) + 1
+        kec = r["kecamatan"] or "(tanpa kecamatan)"
+        per_kec[kec] = per_kec.get(kec, 0) + 1
+        if r["catatan_baku"] or (r["catatan"] or "").strip():
+            ada_catatan += 1
+    isi.append(Paragraph("A. Ringkasan", BAGIAN))
+    kiri = _tabel_rekap("Tahun anggaran", sorted(per_tahun.items()), total)
+    kanan = _tabel_rekap("Kecamatan",
+                         sorted(per_kec.items(), key=lambda x: (-x[1], x[0])), total)
+    dampingan = Table([[kiri, kanan]], colWidths=[100 * mm, 100 * mm], hAlign="LEFT")
+    dampingan.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP"),
+                                   ("LEFTPADDING", (0, 0), (-1, -1), 0)]))
+    isi.append(dampingan)
+    isi.append(Paragraph(
+        "Berkas yang sudah memiliki catatan: <b>%s dari %s berkas</b>." % (
+            angka(ada_catatan), angka(total)), KECIL))
+
+    # ---- rincian: satu tabel per tahun; tahun pertama menyambung di bawah
+    # ringkasan, tahun berikutnya mulai di halaman baru.
+    # Tabel dipecah per tahun juga supaya cepat: reportlab menghitung ulang
+    # sisa tabel di tiap halaman, makin panjang tabel makin lambat.
+    kolom = ["No", "Tahun", "Nomor Berkas", "Nomor Hak", "Desa", "Kecamatan",
+             "Pemegang Hak", "Luas (m²)", "Catatan Baku", "Catatan"]
+    lebar = [w * mm for w in (9, 13, 17, 30, 24, 24, 36, 15, 46, 59)]
+    kepala = [Paragraph(k, KEPALA_KANAN if k.startswith("Luas") else KEPALA)
+              for k in kolom]
+    gaya = TableStyle([
+        ("FONT", (0, 0), (-1, -1), "Helvetica", 7.5),
+        ("BACKGROUND", (0, 0), (-1, 0), ABU),
+        ("GRID", (0, 0), (-1, -1), 0.4, ABU),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("VALIGN", (0, 0), (-1, 0), "MIDDLE"),
+        ("ALIGN", (7, 1), (7, -1), "RIGHT"),
+        ("TOPPADDING", (0, 0), (-1, -1), 3),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+        ("ROWBACKGROUNDS", (0, 1), (-1, -1),
+         [colors.white, colors.HexColor("#f9fafb")]),
+    ])
+
+    kelompok = {}
+    for r in data:
+        kelompok.setdefault(r["tahun"] or "(tanpa tahun)", []).append(r)
+    for urut, (th, isi_th) in enumerate(kelompok.items()):
+        isi.append(PageBreak() if urut else Spacer(1, 6))
+        judul = "B. Rincian berkas residu" if not urut else "B. Rincian berkas residu (lanjutan)"
+        isi.append(Paragraph(judul, BAGIAN))
+        isi.append(Paragraph("Tahun anggaran %s &nbsp;-&nbsp; %s berkas"
+                             % (_esc(th), angka(len(isi_th))), SUBJUDUL_KIRI))
+        baris = [kepala]
+        for no, r in enumerate(isi_th, 1):
+            catatan_baku = "<br/>".join("&bull; " + _esc(c) for c in r["catatan_baku"])
+            baris.append([
+                # kolom pendek cukup teks biasa; Paragraph hanya untuk yang bisa
+                # turun baris, supaya ribuan baris tetap cepat disusun
+                str(no), r["tahun"] or "-", r["nomor_berkas"] or "-", _p(r["nomor_hak"]),
+                _p(r["desa"]), _p(r["kecamatan"]), _p(r["pemegang"]), _luas(r["luas"]),
+                Paragraph(catatan_baku or "-", SEL_KECIL), _p(r["catatan"]),
+            ])
+        t = LongTable(baris, colWidths=lebar, repeatRows=1, hAlign="LEFT")
+        t.setStyle(gaya)
+        isi.append(t)
+
+    dok.build(isi, canvasmaker=_kanvas(kaki))
+    return penampung.getvalue()
+
+
+def _kanvas(kaki):
+    """Kelas kanvas bernomor yang membawa teks kaki laporan ini."""
+    return type("Kanvas", (_KanvasBernomor,), {"keterangan_kaki": kaki})

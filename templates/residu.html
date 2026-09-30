@@ -209,6 +209,8 @@
   <p class="kecil" style="margin:12px 0 0; display:flex; gap:8px; flex-wrap:wrap; align-items:center">
     <a class="tombol kecil" href="/residu.xlsx{{ ('?' ~ request.url.query) if request.url.query }}"
        title="Unduh data residu beserta catatannya sesuai saringan yang sedang dipakai">Unduh Excel</a>
+    <a class="tombol kecil" href="/residu.pdf{{ ('?' ~ request.url.query) if request.url.query }}" target="_blank"
+       title="Daftar residu siap cetak untuk pimpinan, sesuai saringan yang sedang dipakai">Unduh PDF</a>
     <a class="tombol kecil kedua" href="/residu.csv{{ ('?' ~ request.url.query) if request.url.query }}">Unduh CSV</a>
     <a class="tombol kecil kedua" href="/residu/rekap"
        title="Rekap harian pengecekan blanko per petugas dan per desa">Rekap pengecekan blanko</a>
