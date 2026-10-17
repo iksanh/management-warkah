@@ -899,6 +899,22 @@ tr.baris-tersimpan > td { animation: sorot-simpan 2s ease-out; }
   padding: 0 4px;
 }
 
+.lengkapi-residu > .bidang-isian { margin-top: 8px; }
+.lengkapi-residu .baris-borang:has(> .bidang-isian:not([hidden])) { margin-top: 8px; }
+.lengkapi-residu .baris-borang:not(:has(> .bidang-isian:not([hidden]))) { display: none; }
+.isian-tambahan[hidden] { display: none; }
+.tombol-lengkapi {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 6px;
+  margin-top: 10px;
+}
+.tombol-lengkapi .tambah-isian { border-style: dashed; }
+.pilih-tipologi {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 2px 8px; max-height: 180px; overflow-y: auto;
+  background: #fff; border: 1px solid var(--garis); border-radius: var(--radius);
+  padding: 4px;
+}
+
 /* pilihan Tampilkan di halaman residu: residu aktif / berkas tidak ditemukan / semua */
 .tab-tampil { align-items: center; margin-bottom: 10px; }
 .tab-tampil a { padding: 5px 12px; font-size: 13px; }

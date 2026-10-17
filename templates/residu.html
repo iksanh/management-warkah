@@ -344,10 +344,10 @@
           <td class="mono kecil kol-opsional sel-berkas">{{ r.nomor_berkas or '—' }}</td>
           <td>{{ r.nama_desa or r.desa_teks or '—' }}</td>
           <td class="kecil redup kol-opsional">{{ r.nama_kecamatan or r.kecamatan_teks or '—' }}</td>
-          <td class="kecil">{{ r.nama_pemegang or '—' }}</td>
-          <td class="angka kol-opsional">{{ r.luas | angka if r.luas else '—' }}</td>
-          <td class="mono kecil kol-opsional">{{ r.no_seri_blanko or '—' }}</td>
-          <td class="kecil nowrap">
+          <td class="kecil sel-pemegang">{{ r.nama_pemegang or '—' }}</td>
+          <td class="angka kol-opsional sel-luas">{{ r.luas | angka if r.luas else '—' }}</td>
+          <td class="mono kecil kol-opsional sel-seri">{{ r.no_seri_blanko or '—' }}</td>
+          <td class="kecil nowrap sel-tipologi">
             {% for k in (r.tipologi or '').split(',') if k %}
               <span class="tanda abu" title="{{ k }}">{{ k }}</span>
             {% else %}
@@ -451,6 +451,13 @@
 // Dialog Ubah: dibuka dari tombol pada barisnya, ditutup lewat tombol Batal,
 // tombol silang, tekan Esc, atau klik di luar kotaknya. Menutupnya diberi
 // kelas dulu supaya sempat bergerak, baru dialognya benar-benar ditutup.
+// kolom hasil impor yang bisa dilengkapi lewat dialog Ubah -> sel tabelnya
+var SEL_LENGKAPI = {
+  tahun: '.sel-tahun', nomor_berkas: '.sel-berkas', nama_pemegang: '.sel-pemegang',
+  luas: '.sel-luas', no_seri_blanko: '.sel-seri', tipologi: '.sel-tipologi',
+  keterangan: null
+};
+
 var MODAL = (function () {
   var LAMA = 180;
 
@@ -575,14 +582,39 @@ document.querySelectorAll('.modal-rinci').forEach(function (dialog) {
             ? 'Sudah tidak masuk saringan ini; hilang dari daftar saat halaman dimuat ulang' : '';
         }
 
-        // tahun/nomor berkas yang baru dilengkapi: tampilkan di tabel dan
-        // kunci isiannya, karena server hanya mengisi kolom yang masih kosong
-        [['tahun', '.sel-tahun'], ['nomor_berkas', '.sel-berkas']].forEach(function (p) {
-          if (!hasil[p[0]]) { return; }
-          var td = baris && baris.querySelector(p[1]);
-          if (td) { td.textContent = hasil[p[0]]; }
-          var isian = borang.querySelector('input[name="' + p[0] + '"]');
-          if (isian) { isian.value = hasil[p[0]]; isian.readOnly = true; isian.classList.add('terkunci'); }
+        // kolom yang baru dilengkapi: tampilkan di tabel dan kunci isiannya,
+        // karena server hanya mengisi kolom yang masih kosong
+        var lengkap = hasil.lengkapi || {};
+        Object.keys(SEL_LENGKAPI).forEach(function (k) {
+          var v = lengkap[k];
+          if (!v) { return; }
+          var td = baris && SEL_LENGKAPI[k] && baris.querySelector(SEL_LENGKAPI[k]);
+          if (td) {
+            if (k === 'tipologi') {
+              td.innerHTML = '';
+              v.split(',').forEach(function (kode) {
+                var t = document.createElement('span');
+                t.className = 'tanda abu'; t.title = kode; t.textContent = kode;
+                td.appendChild(t); td.appendChild(document.createTextNode(' '));
+              });
+            } else {
+              td.textContent = k === 'luas' ? Number(v).toLocaleString('id-ID') : v;
+            }
+          }
+          // nama pemegang & luas tetap bisa dikoreksi lagi, jadi tidak dikunci
+          if (k === 'nama_pemegang' || k === 'luas') { return; }
+          borang.querySelectorAll('[name="' + k + '"]').forEach(function (isian) {
+            if (isian.type === 'checkbox') {
+              isian.disabled = true;
+            } else {
+              isian.value = v; isian.readOnly = true; isian.classList.add('terkunci');
+            }
+          });
+          // isiannya mungkin masih tersembunyi bila tombol "+" belum dibuka
+          var kotak = borang.querySelector('.isian-tambahan[data-kolom="' + k + '"]');
+          if (kotak) { kotak.hidden = false; }
+          var tb = borang.querySelector('.tambah-isian[data-kolom="' + k + '"]');
+          if (tb) { tb.remove(); }
         });
 
         kabar.className = 'kabar-simpan berhasil';
@@ -607,6 +639,26 @@ document.querySelectorAll('.modal-rinci').forEach(function (dialog) {
         kabar.textContent = 'Gagal menyimpan: ' + galat.message + '. Coba lagi.';
         tombol.disabled = false;
       });
+    });
+  });
+})();
+
+// Tombol "+ ..." di kotak "Lengkapi data yang belum ada": membuka isian kolom
+// yang masih kosong satu per satu, supaya borang tidak penuh kolom yang
+// belum tentu diketahui petugas.
+(function () {
+  document.querySelectorAll('.tambah-isian').forEach(function (tombol) {
+    tombol.addEventListener('click', function () {
+      var kotak = tombol.closest('.lengkapi-residu');
+      var isian = kotak.querySelector('.isian-tambahan[data-kolom="' + tombol.dataset.kolom + '"]');
+      if (!isian) { return; }
+      isian.hidden = false;
+      var deret = tombol.parentNode;
+      tombol.remove();
+      // label "Isi juga:" ikut hilang bila tombolnya sudah habis
+      if (!deret.querySelector('.tambah-isian')) { deret.remove(); }
+      var fokus = isian.querySelector('input:not([type="checkbox"])') || isian.querySelector('input');
+      if (fokus) { fokus.focus(); }
     });
   });
 })();

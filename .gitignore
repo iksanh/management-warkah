@@ -1,6 +1,7 @@
 warkah.db
 warkah.db-wal
 warkah.db-shm
+warkah.db.old
 rahasia.txt
 unggahan/
 *.xlsx

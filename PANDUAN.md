@@ -247,6 +247,15 @@ tanggal serah. Keterangan desa, kecamatan, pemegang hak, dan luasnya diambil dar
 bidang di katalog; tahun anggaran dan nomor berkas dibiarkan kosong karena memang belum
 ada berkasnya.
 
+Kolom yang masih kosong bisa dilengkapi lewat tombol **Ubah**, di kotak "Lengkapi data
+yang belum ada". Tahun dan nomor berkas langsung tampil; kolom lain (no. seri blanko,
+tipologi, keterangan berkas) dibuka lewat tombol **+ ...** sesuai yang diketahui. Kolom
+yang sudah terisi tidak bisa ditimpa dari sini.
+
+**Nama pemegang** dan **luas** selalu tampil di dialog Ubah dan boleh dikoreksi walau
+sudah terisi. Mengosongkan isiannya tidak menghapus nilai lama. Setiap koreksi tercatat
+di log beserta nilai lama dan barunya.
+
 Aturan yang berlaku:
 
 - Kolom **Residu** hanya bisa dicentang Admin. Petugas tetap melihat kolomnya, tetapi

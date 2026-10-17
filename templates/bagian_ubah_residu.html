@@ -54,30 +54,97 @@
                   </dl>
                 </div>
                 <div>
-                  {# tahun & nomor berkas hanya bisa diisi selama masih kosong,
-                     umumnya baris yang ditandai dari katalog; nilai hasil
-                     impor tidak ditimpa dari sini #}
-                  {% if not r.tahun or not r.nomor_berkas %}
+                  {# kolom hasil impor yang masih kosong bisa dilengkapi di sini,
+                     umumnya baris yang ditandai dari katalog. Tahun & nomor
+                     berkas langsung tampil karena paling sering kosong; kolom
+                     lain dibuka lewat tombol "+" supaya borangnya tetap ringkas.
+                     Nilai yang sudah ada tidak ditimpa dari sini. #}
+                  {% set kosong = [] %}
+                  {% for k in ['tahun', 'nomor_berkas', 'no_seri_blanko', 'tipologi', 'keterangan'] %}
+                    {% if r[k] is none or (r[k] | string | trim) == '' %}{% set _ = kosong.append(k) %}{% endif %}
+                  {% endfor %}
+                  {% set tambahan = kosong | reject('in', ['tahun', 'nomor_berkas']) | list %}
+                  {% set label_kolom = {'no_seri_blanko': 'No. seri blanko', 'tipologi': 'Tipologi',
+                                        'keterangan': 'Keterangan berkas'} %}
+                  {# nama pemegang & luas selalu tampil dan boleh dikoreksi, walau
+                     sudah terisi; isian yang dikosongkan dianggap tidak diubah #}
+                  <div class="baris-borang">
+                    <div class="bidang-isian isian-lebar">
+                      <label for="nm-{{ r.id }}">Nama pemegang</label>
+                      <input type="text" id="nm-{{ r.id }}" name="nama_pemegang"
+                             maxlength="200" value="{{ r.nama_pemegang or '' }}"
+                             placeholder="nama pemegang hak di sertipikat">
+                    </div>
+                    <div class="bidang-isian">
+                      <label for="ls-{{ r.id }}">Luas (m²)</label>
+                      <input type="text" id="ls-{{ r.id }}" name="luas"
+                             inputmode="numeric" pattern="[0-9.]{1,10}" maxlength="10"
+                             value="{{ r.luas if r.luas is not none else '' }}" placeholder="mis. 250">
+                    </div>
+                  </div>
+                  {% if kosong %}
                     <fieldset class="lengkapi-residu">
-                      <legend>Lengkapi data yang belum ada</legend>
+                      <legend>Lengkapi data yang belum ada ({{ kosong | length }})</legend>
+                      {% if 'tahun' in kosong or 'nomor_berkas' in kosong %}
                       <div class="baris-borang">
-                        {% if not r.tahun %}
-                          <div class="bidang-isian">
+                        {% if 'tahun' in kosong %}
+                          <div class="bidang-isian" data-kolom="tahun">
                             <label for="th-{{ r.id }}">Tahun</label>
                             <input type="text" id="th-{{ r.id }}" name="tahun"
                                    inputmode="numeric" pattern="\d{4}" maxlength="4"
                                    placeholder="mis. 2021" list="daftar-tahun-residu">
                           </div>
                         {% endif %}
-                        {% if not r.nomor_berkas %}
-                          <div class="bidang-isian">
+                        {% if 'nomor_berkas' in kosong %}
+                          <div class="bidang-isian" data-kolom="nomor_berkas">
                             <label for="nb-{{ r.id }}">Nomor berkas</label>
                             <input type="text" id="nb-{{ r.id }}" name="nomor_berkas"
                                    maxlength="100" placeholder="nomor berkas permohonan">
                           </div>
                         {% endif %}
                       </div>
-                      <p class="kecil redup" style="margin:4px 0 0">
+                      {% endif %}
+
+                      {% if 'no_seri_blanko' in kosong %}
+                        <div class="bidang-isian isian-tambahan" data-kolom="no_seri_blanko" hidden>
+                          <label for="sb-{{ r.id }}">No. seri blanko</label>
+                          <input type="text" id="sb-{{ r.id }}" name="no_seri_blanko"
+                                 maxlength="50" placeholder="mis. AB 123456">
+                        </div>
+                      {% endif %}
+                      {% if 'tipologi' in kosong %}
+                        <div class="bidang-isian isian-tambahan" data-kolom="tipologi" hidden>
+                          <label>Tipologi permasalahan</label>
+                          <div class="pilih-tipologi">
+                            {% for t in daftar_tipologi %}
+                              <label class="pilih-catatan" title="{{ t.nama or t.kelompok }}">
+                                <input type="checkbox" name="tipologi" value="{{ t.kode }}">
+                                <span><b class="mono">{{ t.kode }}</b>{{ ' — ' ~ t.nama if t.nama }}</span>
+                              </label>
+                            {% else %}
+                              <span class="kecil redup">Belum ada kode tipologi.</span>
+                            {% endfor %}
+                          </div>
+                        </div>
+                      {% endif %}
+                      {% if 'keterangan' in kosong %}
+                        <div class="bidang-isian isian-tambahan" data-kolom="keterangan" hidden>
+                          <label for="kt-{{ r.id }}">Keterangan berkas</label>
+                          <input type="text" id="kt-{{ r.id }}" name="keterangan"
+                                 maxlength="500" placeholder="keterangan dari berkas residu">
+                        </div>
+                      {% endif %}
+
+                      {% if tambahan %}
+                        <div class="tombol-lengkapi">
+                          <span class="kecil redup">Isi juga:</span>
+                          {% for k in tambahan %}
+                            <button type="button" class="tombol kecil kedua tambah-isian"
+                                    data-kolom="{{ k }}">+ {{ label_kolom[k] }}</button>
+                          {% endfor %}
+                        </div>
+                      {% endif %}
+                      <p class="kecil redup" style="margin:6px 0 0">
                         Boleh dikosongkan. Sesudah tersimpan, isian ini tidak bisa diubah lagi dari sini.
                       </p>
                     </fieldset>

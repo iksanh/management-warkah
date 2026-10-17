@@ -1635,26 +1635,79 @@ async def residu(request: Request):
         tersimpan=qp.get("tersimpan")))
 
 
+# kolom hasil impor yang boleh dilengkapi petugas selama masih kosong; urutan
+# ini juga urutan tombol "+ ..." di dialog Ubah
+KOLOM_LENGKAPI = ["tahun", "nomor_berkas", "no_seri_blanko", "tipologi", "keterangan"]
+# kolom yang selalu tampil di dialog Ubah dan boleh dikoreksi kapan saja,
+# walau sudah terisi dari impor atau dari katalog
+KOLOM_POKOK = ["nama_pemegang", "luas"]
+
+
+def baca_luas(teks):
+    """Luas m² dari isian borang ("1.250" -> 1250); None bila kosong."""
+    t = (teks or "").strip().replace(".", "").replace(" ", "")
+    if not t:
+        return None
+    if not t.isdigit() or not 0 < int(t) < 10_000_000:
+        raise ValueError("Luas harus bilangan bulat meter persegi, mis. 250")
+    return int(t)
+
+
+def ubah_pokok(kon, rid, form):
+    """Perubahan nama pemegang & luas dari dialog Ubah.
+
+    Isian kosong dianggap "tidak diubah" supaya nilai lama tidak terhapus
+    tanpa sengaja. Kembaliannya ({kolom: nilai baru}, {kolom: nilai lama}).
+    """
+    if not any(k in form for k in KOLOM_POKOK):      # borang lain: tidak disentuh
+        return {}, {}
+    r = kon.execute("SELECT nama_pemegang, luas FROM residu WHERE id = ?",
+                    (rid,)).fetchone()
+    baru = {}
+    nama = (form.get("nama_pemegang") or "").strip()[:200]
+    if nama and nama != (r["nama_pemegang"] or ""):
+        baru["nama_pemegang"] = nama
+    luas = baca_luas(form.get("luas"))
+    if luas is not None and luas != r["luas"]:
+        baru["luas"] = luas
+    return baru, {k: r[k] for k in baru}
+
+
 def isian_kosong(kon, rid, form):
-    """Tahun & nomor berkas yang boleh diisi petugas untuk satu baris residu.
+    """Kolom hasil impor yang boleh diisi petugas untuk satu baris residu.
 
     Hanya berlaku bila kolomnya masih kosong - umumnya baris yang ditandai dari
-    katalog, yang tidak membawa tahun maupun nomor berkas. Nilai hasil impor
-    tidak pernah ditimpa dari sini. Kembaliannya {kolom: nilai} yang sah.
+    katalog, yang tidak membawa tahun, nomor berkas, seri blanko, tipologi dan
+    sebagainya. Nilai hasil impor tidak pernah ditimpa dari sini.
+    Kembaliannya {kolom: nilai} yang sah.
     """
-    r = kon.execute("SELECT tahun, nomor_berkas FROM residu WHERE id = ?",
+    r = kon.execute("SELECT %s FROM residu WHERE id = ?" % ", ".join(KOLOM_LENGKAPI),
                     (rid,)).fetchone()
     ubah = {}
     if r is None:
         return ubah
+
+    def kosong(k):
+        return r[k] is None or not str(r[k]).strip()
+
     th = (form.get("tahun") or "").strip()
-    if not (r["tahun"] or "").strip() and th:
+    if kosong("tahun") and th:
         if not re.fullmatch(r"\d{4}", th) or not 1960 <= int(th) <= date.today().year + 1:
             raise ValueError("Tahun harus 4 angka, mis. 2021")
         ubah["tahun"] = th
-    nb = (form.get("nomor_berkas") or "").strip()[:100]
-    if not (r["nomor_berkas"] or "").strip() and nb:
-        ubah["nomor_berkas"] = nb
+    for k, batas in (("nomor_berkas", 100), ("no_seri_blanko", 50),
+                     ("keterangan", 500)):
+        v = (form.get(k) or "").strip()[:batas]
+        if kosong(k) and v:
+            ubah[k] = v
+    if kosong("tipologi"):
+        # kode yang tidak dikenal dibuang, urutannya mengikuti tabel tipologi
+        sah = [t["kode"] for t in kon.execute(
+            "SELECT kode FROM tipologi ORDER BY urut")]
+        dipilih = {k.strip() for k in form.getlist("tipologi")}
+        kode = [k for k in sah if k in dipilih]
+        if kode:
+            ubah["tipologi"] = ",".join(kode)
     return ubah
 
 
@@ -1724,8 +1777,8 @@ def ringkas_baris(kon, rid, kembali_ke=""):
         "diubah": ("%s oleh %s" % (r["diubah_pada"], r["diubah_oleh"] or "-")
                    if r["diubah_pada"] else "belum pernah"),
         "petugas": r["petugas"] or "",
-        "tahun": r["tahun"] or "",
-        "nomor_berkas": r["nomor_berkas"] or "",
+        "lengkapi": {k: ("" if r[k] is None else str(r[k]))
+                     for k in KOLOM_LENGKAPI + KOLOM_POKOK},
         "ringkas": {
             "jumlah": ringkas["jumlah"],
             "diserahkan": ringkas["diserahkan"] or 0,
@@ -1761,13 +1814,14 @@ async def simpan_residu(request: Request):
         return Response("Data residu tidak ditemukan", status_code=404)
     try:
         lengkapi = isian_kosong(kon, rid, form)
+        pokok, pokok_lama = ubah_pokok(kon, rid, form)
     except ValueError as galat:
         kon.close()
         if minta_json(request):
             return JSONResponse({"ok": False, "pesan": str(galat)}, status_code=400)
         return Response(str(galat), status_code=400)
     tanda, log_tanda = ubah_tidak_ditemukan(kon, rid, form, siapa)
-    tambahan = {**lengkapi, **tanda}
+    tambahan = {**lengkapi, **pokok, **tanda}
     kon.execute(
         "UPDATE residu SET %s, sudah_diserahkan = ?, diubah_oleh = ?, "
         "diubah_pada = ? WHERE id = ?"
@@ -1775,8 +1829,13 @@ async def simpan_residu(request: Request):
         nilai + list(tambahan.values()) + [serah, siapa or None, sekarang(), rid])
     tulis_log(kon, siapa, "Simpan residu", None,
               "%s: %s" % (ada["nomor_hak"] or "-", isi(form, "status") or "-"))
+    if pokok:
+        tulis_log(kon, siapa, "Koreksi pemegang/luas residu", None,
+                  "%s: %s" % (ada["nomor_hak"] or "-", ", ".join(
+                      "%s: %s -> %s" % (k, pokok_lama[k] if pokok_lama[k] is not None else "-", v)
+                      for k, v in pokok.items())))
     if lengkapi:
-        tulis_log(kon, siapa, "Lengkapi tahun/berkas residu", None,
+        tulis_log(kon, siapa, "Lengkapi data residu", None,
                   "%s: %s" % (ada["nomor_hak"] or "-", ", ".join(
                       "%s=%s" % kv for kv in lengkapi.items())))
     if log_tanda:
