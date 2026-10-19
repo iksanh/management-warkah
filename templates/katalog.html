@@ -2,8 +2,16 @@
 {% block judul %}Katalog — Aplikasi Warkah{% endblock %}
 {% block isi %}
 
-<h1>Katalog Warkah</h1>
-<p class="jelas">Cari berdasarkan nomor hak, NIB, nomor surat ukur, atau nama pemilik.</p>
+<div class="kepala-halaman">
+  <div>
+    <h1>Katalog Warkah</h1>
+    <p class="jelas">Cari berdasarkan nomor hak, NIB, nomor surat ukur, atau nama pemilik.</p>
+  </div>
+  <div class="aksi-halaman">
+    <a href="/bidang/tambah" class="tombol kedua"
+       title="Untuk buku tanah & surat ukur yang ada secara fisik tetapi tidak terbawa tarikan KKP">+ Tambah bidang</a>
+  </div>
+</div>
 
 {% if tersimpan %}
   <div class="pesan sukses">{{ tersimpan }} bidang tersimpan.</div>
@@ -55,77 +63,84 @@
       </select>
     </div>
     <div class="bidang-isian">
-      <label for="hak">Jenis hak</label>
-      <select id="hak" name="hak">
-        <option value="">Semua</option>
-        {% for h in daftar_hak %}
-          <option value="{{ h.kode }}" {{ 'selected' if qp.get('hak') == h.kode }}>{{ h.nama }}</option>
-        {% endfor %}
-      </select>
-    </div>
-    <div class="bidang-isian">
-      <label for="kw">KW</label>
-      <select id="kw" name="kw">
-        <option value="">Semua</option>
-        {% for k in ['KW1','KW2','KW3','KW4','KW5','KW6'] %}
-          <option value="{{ k }}" {{ 'selected' if qp.get('kw') == k }}>{{ k }}</option>
-        {% endfor %}
-      </select>
-    </div>
-    <div class="bidang-isian">
-      <label for="pinjam">Ketersediaan</label>
-      <select id="pinjam" name="pinjam">
-        <option value="">Semua</option>
-        <option value="tersedia" {{ 'selected' if qp.get('pinjam') == 'tersedia' }}>Tersedia</option>
-        <option value="dipinjam" {{ 'selected' if qp.get('pinjam') == 'dipinjam' }}>Sedang dipinjam</option>
-      </select>
-    </div>
-    <div class="bidang-isian">
-      <label for="periksa">Pemeriksaan</label>
-      <select id="periksa" name="periksa">
-        <option value="">Semua</option>
-        <option value="belum" {{ 'selected' if qp.get('periksa') == 'belum' }}>Belum diperiksa</option>
-        <option value="sudah" {{ 'selected' if qp.get('periksa') == 'sudah' }}>Sudah diperiksa</option>
-        {% for s in pilihan.status_identifikasi %}
-          <option value="{{ s }}" {{ 'selected' if qp.get('periksa') == s }}>{{ s }}</option>
-        {% endfor %}
-      </select>
-    </div>
-    <div class="bidang-isian">
-      <label for="residu">Residu</label>
-      <select id="residu" name="residu">
-        <option value="">Semua</option>
-        <option value="ada" {{ 'selected' if qp.get('residu') == 'ada' }}>Tercatat residu</option>
-        <option value="belum" {{ 'selected' if qp.get('residu') == 'belum' }}>Bukan residu</option>
-      </select>
-    </div>
-    <div class="bidang-isian">
-      <label for="tambahan">Asal data</label>
-      <select id="tambahan" name="tambahan">
-        <option value="">Semua</option>
-        <option value="ada" {{ 'selected' if qp.get('tambahan') == 'ada' }}>Hanya bidang tambahan</option>
-        <option value="belum" {{ 'selected' if qp.get('tambahan') == 'belum' }}>Hanya dari tarikan KKP</option>
-        <option value="ditaut" {{ 'selected' if qp.get('tambahan') == 'ditaut' }}>Hak aktif yang ditaut</option>
-      </select>
-    </div>
-    <div class="bidang-isian">
-      <label for="petugas">Petugas periksa</label>
-      <select id="petugas" name="petugas">
-        <option value="">Semua</option>
-        {% for p in petugas_periksa %}
-          <option value="{{ p.petugas }}" {{ 'selected' if qp.get('petugas') == p.petugas }}>{{ p.petugas }}</option>
-        {% endfor %}
-      </select>
-    </div>
-    <div class="bidang-isian">
-      <label>&nbsp;</label>
-      <div style="display:flex; gap:6px">
+      <label class="sr-saja">Tindakan</label>
+      <div class="deret-tombol">
         <button type="submit">Cari</button>
         <a href="/katalog" class="tombol kedua">Reset</a>
-        <a href="/bidang/tambah" class="tombol kedua"
-           title="Untuk buku tanah & surat ukur yang ada secara fisik tetapi tidak terbawa tarikan KKP">+ Bidang</a>
       </div>
     </div>
+    {% set ns = namespace(n=0) %}
+    {% for k in ['hak', 'kw', 'pinjam', 'periksa', 'residu', 'tambahan', 'petugas'] %}
+      {% if qp.get(k) %}{% set ns.n = ns.n + 1 %}{% endif %}
+    {% endfor %}
+    <details class="saring-lain"{{ ' open' if ns.n }}>
+      <summary>Saringan lain{% if ns.n %} <span class="tanda biru">{{ ns.n }} aktif</span>{% endif %}</summary>
+      <div class="saring-lain-isi">
+        <div class="bidang-isian">
+          <label for="hak">Jenis hak</label>
+          <select id="hak" name="hak">
+            <option value="">Semua</option>
+            {% for h in daftar_hak %}
+              <option value="{{ h.kode }}" {{ 'selected' if qp.get('hak') == h.kode }}>{{ h.nama }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="bidang-isian">
+          <label for="kw">KW</label>
+          <select id="kw" name="kw">
+            <option value="">Semua</option>
+            {% for k in ['KW1','KW2','KW3','KW4','KW5','KW6'] %}
+              <option value="{{ k }}" {{ 'selected' if qp.get('kw') == k }}>{{ k }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="bidang-isian">
+          <label for="pinjam">Ketersediaan</label>
+          <select id="pinjam" name="pinjam">
+            <option value="">Semua</option>
+            <option value="tersedia" {{ 'selected' if qp.get('pinjam') == 'tersedia' }}>Tersedia</option>
+            <option value="dipinjam" {{ 'selected' if qp.get('pinjam') == 'dipinjam' }}>Sedang dipinjam</option>
+          </select>
+        </div>
+        <div class="bidang-isian">
+          <label for="periksa">Pemeriksaan</label>
+          <select id="periksa" name="periksa">
+            <option value="">Semua</option>
+            <option value="belum" {{ 'selected' if qp.get('periksa') == 'belum' }}>Belum diperiksa</option>
+            <option value="sudah" {{ 'selected' if qp.get('periksa') == 'sudah' }}>Sudah diperiksa</option>
+            {% for s in pilihan.status_identifikasi %}
+              <option value="{{ s }}" {{ 'selected' if qp.get('periksa') == s }}>{{ s }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="bidang-isian">
+          <label for="residu">Residu</label>
+          <select id="residu" name="residu">
+            <option value="">Semua</option>
+            <option value="ada" {{ 'selected' if qp.get('residu') == 'ada' }}>Tercatat residu</option>
+            <option value="belum" {{ 'selected' if qp.get('residu') == 'belum' }}>Bukan residu</option>
+          </select>
+        </div>
+        <div class="bidang-isian">
+          <label for="tambahan">Asal data</label>
+          <select id="tambahan" name="tambahan">
+            <option value="">Semua</option>
+            <option value="ada" {{ 'selected' if qp.get('tambahan') == 'ada' }}>Hanya bidang tambahan</option>
+            <option value="belum" {{ 'selected' if qp.get('tambahan') == 'belum' }}>Hanya dari tarikan KKP</option>
+            <option value="ditaut" {{ 'selected' if qp.get('tambahan') == 'ditaut' }}>Hak aktif yang ditaut</option>
+          </select>
+        </div>
+        <div class="bidang-isian">
+          <label for="petugas">Petugas periksa</label>
+          <select id="petugas" name="petugas">
+            <option value="">Semua</option>
+            {% for p in petugas_periksa %}
+              <option value="{{ p.petugas }}" {{ 'selected' if qp.get('petugas') == p.petugas }}>{{ p.petugas }}</option>
+            {% endfor %}
+          </select>
+        </div>
+      </div>
+    </details>
   </form>
 </div>
 

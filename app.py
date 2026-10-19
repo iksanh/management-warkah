@@ -1477,6 +1477,18 @@ def filter_residu(qp, kecuali=()):
                       "OR r.nama_pemegang LIKE ? OR r.nomor_berkas LIKE ? "
                       "OR r.no_seri_blanko LIKE ?)")
         par += [pola] * 6
+    # pencarian cepat seperti aplikasi kementerian: nomor berkas + tahun.
+    # Nomor berkas dicocokkan persis (bukan "memuat"), dengan spasi dan nol di
+    # depan diabaikan, karena nomor yang sama bisa dipakai lagi di tahun lain;
+    # tahunnya dipilih lewat saringan tahun di bawah.
+    berkas = (qp.get("berkas") or "").strip() if "berkas" not in kecuali else ""
+    if berkas:
+        if berkas.lstrip("0"):
+            syarat.append("LTRIM(TRIM(r.nomor_berkas), '0') = ?")
+            par.append(berkas.lstrip("0"))
+        else:
+            syarat.append("TRIM(r.nomor_berkas) = ?")
+            par.append(berkas)
     th = (qp.get("tahun") or "").strip() if "tahun" not in kecuali else ""
     if th == TANPA_TAHUN:
         # tab "(tanpa tahun)" hanyalah label untuk baris yang tahunnya kosong
@@ -2205,7 +2217,7 @@ def saringan_terpasang(qp):
         "semua": "Semua baris (termasuk berkas tidak ditemukan)",
     }.get((qp.get("tampil") or "").strip(),
           "Residu aktif (berkas tidak ditemukan tidak ikut)"))]
-    for kunci, label in (("q", "Kata kunci"), ("tahun", "Tahun"),
+    for kunci, label in (("berkas", "Nomor berkas"), ("q", "Kata kunci"), ("tahun", "Tahun"),
                          ("kecamatan", "Kecamatan"), ("desa", "Desa"),
                          ("status", "Status"), ("petugas", "Petugas"),
                          ("tipologi", "Tipologi"), ("catatan", "Catatan baku"),

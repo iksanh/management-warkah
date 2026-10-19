@@ -4,39 +4,44 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Masuk — Aplikasi Warkah</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,100..900&display=swap">
 <link rel="stylesheet" href="/static/style.css?v={{ versi_gaya() }}">
 </head>
 <body class="latar-masuk">
 
-<div class="kotak-masuk">
+<main class="kotak-masuk">
   <div class="kotak-masuk-kepala">
-    <div class="merek-besar">ARSIP WARKAH</div>
-    <div class="merek-kecil">Kantor Pertanahan Kabupaten Bone Bolango</div>
+    <svg class="lambang" viewBox="0 0 32 32" aria-hidden="true">
+      <path d="M3 9a2 2 0 0 1 2-2h7l3 3h12a2 2 0 0 1 2 2v13a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" fill="currentColor"/>
+      <path d="M8 16h16M8 20h10" stroke="#fff" stroke-width="2" stroke-linecap="round"/>
+    </svg>
+    <h1 class="merek-besar">Arsip Warkah</h1>
+    <p class="merek-kecil">Kantor Pertanahan Kabupaten Bone Bolango</p>
   </div>
 
   <form method="post" action="/masuk" class="kotak-masuk-isi">
     <input type="hidden" name="next" value="{{ tujuan }}">
 
-    {% if galat %}<div class="pesan awas">{{ galat }}</div>{% endif %}
+    {% if galat %}<div class="pesan awas" role="alert">{{ galat }}</div>{% endif %}
 
-    <div class="bidang-isian" style="margin-bottom:14px">
+    <div class="bidang-isian">
       <label for="username">Nama pengguna</label>
       <input type="text" id="username" name="username" autocomplete="username"
              autofocus required class="lebar-penuh">
     </div>
-    <div class="bidang-isian" style="margin-bottom:20px">
+    <div class="bidang-isian">
       <label for="sandi">Sandi</label>
       <input type="password" id="sandi" name="sandi" autocomplete="current-password"
              required class="lebar-penuh">
     </div>
 
-    <button type="submit" class="lebar-penuh" style="padding:10px">Masuk</button>
+    <button type="submit" class="lebar-penuh tombol-besar">Masuk</button>
 
-    <p class="kecil redup" style="margin:18px 0 0; text-align:center">
-      Lupa sandi? Hubungi Admin untuk mengatur ulang.
-    </p>
+    <p class="catatan-masuk">Lupa sandi? Minta Admin mengatur ulang sandi Anda.</p>
   </form>
-</div>
+</main>
 
 </body>
 </html>

@@ -10,13 +10,208 @@
   Nomor haknya dicocokkan satu-lawan-satu dengan data bidang di katalog.
 </p>
 
-{# pilihan Tampilkan: bawaannya residu aktif; baris yang berkasnya tidak
-   ditemukan disisihkan, bukan dihapus. Saringan lain tetap terpasang. #}
+{# potongan tautan yang menjaga saringan lain tetap terpasang:
+   sisa/ekor tanpa tahun (untuk tab tahun), sisa_tampil/ekor_tampil tanpa
+   pilihan Tampilkan #}
 {% set sisa_tampil = [] %}
 {% for k, v in dasar.items() if k not in ('tampil', 'hal') %}
   {% set _ = sisa_tampil.append(k ~ '=' ~ (v | urlencode)) %}
 {% endfor %}
 {% set ekor_tampil = ('&' ~ (sisa_tampil | join('&'))) if sisa_tampil else '' %}
+{% set sisa = [] %}
+{% for k, v in dasar.items() if k not in ('tahun', 'hal') %}
+  {% set _ = sisa.append(k ~ '=' ~ (v | urlencode)) %}
+{% endfor %}
+{% set ekor = ('&' ~ (sisa | join('&'))) if sisa else '' %}
+
+{# pencarian ditaruh paling atas karena itulah pekerjaan utama halaman ini #}
+<div class="kartu">
+  <form class="saring" method="get" action="/residu">
+    {# PENCARIAN CEPAT: seperti aplikasi kementerian, berkas dicari lewat
+       nomor berkas + tahun. Pilih tahun lalu ketik nomor berkasnya saja;
+       tanpa tahun, nomor berkas dicari di semua tahun. #}
+    <div class="bidang-isian">
+      <label for="tahun">Tahun</label>
+      <select id="tahun" name="tahun">
+        <option value="">Semua tahun</option>
+        {% for t in semua_tahun %}
+          <option value="{{ t.tahun }}" {{ 'selected' if th == t.tahun }}>{{ t.tahun }}</option>
+        {% endfor %}
+        <option value="(tanpa tahun)" {{ 'selected' if th == '(tanpa tahun)' }}>(tanpa tahun)</option>
+      </select>
+    </div>
+    <div class="bidang-isian isian-berkas">
+      <label for="berkas">Nomor berkas</label>
+      <input type="text" id="berkas" name="berkas" value="{{ qp.get('berkas', '') }}"
+             inputmode="numeric" autocomplete="off" placeholder="mis. 10380"
+             aria-describedby="petunjuk-berkas" class="lebar-penuh">
+    </div>
+    <div class="bidang-isian">
+      <label class="sr-saja">Tindakan</label>
+      <div class="deret-tombol">
+        <button type="submit">Cari</button>
+        <a href="/residu" class="tombol kedua">Reset</a>
+      </div>
+    </div>
+    <p class="petunjuk petunjuk-cari" id="petunjuk-berkas"
+       data-semua="Tanpa tahun, nomor berkas dicari di semua tahun."
+       data-tahun="Mencari nomor berkas di tahun {tahun}.">
+      {% if th %}Mencari nomor berkas di tahun {{ th }}.{% else %}Tanpa tahun, nomor berkas dicari di semua tahun.{% endif %}
+    </p>
+    {% set ns = namespace(n=0) %}
+    {% for k in ['q', 'kecamatan', 'desa', 'tipologi', 'catatan', 'serah', 'status', 'blanko', 'cocok'] %}
+      {% if qp.get(k) %}{% set ns.n = ns.n + 1 %}{% endif %}
+    {% endfor %}
+    <details class="saring-lain"{{ ' open' if ns.n }}>
+      <summary>Saringan lain{% if ns.n %} <span class="tanda biru">{{ ns.n }} aktif</span>{% endif %}</summary>
+      <div class="saring-lain-isi">
+        <div class="bidang-isian isian-lebar">
+          <label for="q">Kata kunci</label>
+          <input type="text" id="q" name="q" value="{{ qp.get('q', '') }}"
+                 placeholder="tahun / nomor hak / nama pemegang / nomor berkas / seri blanko"
+                 class="lebar-penuh">
+        </div>
+        <div class="bidang-isian">
+          <label for="kecamatan">Kecamatan</label>
+          <select id="kecamatan" name="kecamatan">
+            <option value="">Semua</option>
+            {% for k in kecamatan %}
+              <option value="{{ k.nama_kecamatan }}" {{ 'selected' if kec_terpilih == k.nama_kecamatan }}>{{ k.nama_kecamatan }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="bidang-isian">
+          <label for="desa">Desa</label>
+          <select id="desa" name="desa">
+            <option value="">Semua</option>
+            {% for d in desa_tampil %}
+              <option value="{{ d.id }}" {{ 'selected' if qp.get('desa') == d.id | string }}>
+                {{ d.nama_desa }}{{ '' if kec_terpilih else ' (' ~ d.nama_kecamatan ~ ')' }}
+              </option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="bidang-isian">
+          <label for="tipologi">Tipologi</label>
+          <select id="tipologi" name="tipologi">
+            <option value="">Semua</option>
+            {% for t in daftar_tipologi %}
+              <option value="{{ t.kode }}" {{ 'selected' if qp.get('tipologi') == t.kode }}>
+                {{ t.kode }}{{ ' — ' ~ t.nama if t.nama }} ({{ hitung_tipologi.get(t.kode, 0) }})
+              </option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="bidang-isian">
+          <label for="catatan">Catatan</label>
+          <select id="catatan" name="catatan">
+            <option value="">Semua</option>
+            {% for kel, daftar in grup_catatan %}
+              <optgroup label="{{ kel }}">
+                {% for c in daftar %}
+                  <option value="{{ c.kode }}" {{ 'selected' if qp.get('catatan') == c.kode }}>
+                    {{ c.teks }}
+                  </option>
+                {% endfor %}
+              </optgroup>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="bidang-isian">
+          <label for="serah">Penyerahan</label>
+          <select id="serah" name="serah">
+            <option value="">Semua</option>
+            <option value="belum" {{ 'selected' if qp.get('serah') == 'belum' }}>Belum diserahkan</option>
+            <option value="sudah" {{ 'selected' if qp.get('serah') == 'sudah' }}>Sudah diserahkan</option>
+          </select>
+        </div>
+        <div class="bidang-isian">
+          <label for="status">Status tindak lanjut</label>
+          <select id="status" name="status">
+            <option value="">Semua</option>
+            {% for s in pilihan.status_residu %}
+              <option value="{{ s }}" {{ 'selected' if qp.get('status') == s }}>{{ s }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="bidang-isian">
+          <label for="blanko">Blanko</label>
+          <select id="blanko" name="blanko">
+            <option value="">Semua</option>
+            <option value="belum" {{ 'selected' if qp.get('blanko') == 'belum' }}>Belum dicek</option>
+            {% for b in pilihan.blanko %}
+              <option value="{{ b }}" {{ 'selected' if qp.get('blanko') == b }}>{{ b }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="bidang-isian">
+          <label for="cocok">Pencocokan</label>
+          <select id="cocok" name="cocok">
+            <option value="">Semua</option>
+            <option value="cocok" {{ 'selected' if qp.get('cocok') == 'cocok' }}>Cocok dengan bidang</option>
+            <option value="belum" {{ 'selected' if qp.get('cocok') == 'belum' }}>Belum tercocokkan</option>
+          </select>
+        </div>
+      </div>
+    </details>
+  </form>
+
+  {% set kueri = ('?' ~ request.url.query) if request.url.query else '' %}
+  <div class="bilah-aksi">
+    <span class="kecil redup">Unduh sesuai saringan:</span>
+    <a class="tombol kecil kedua" href="/residu.xlsx{{ kueri }}"
+       title="Data residu beserta catatannya">Excel</a>
+    <a class="tombol kecil kedua" href="/residu.pdf{{ kueri }}" target="_blank" rel="noopener"
+       title="Daftar residu siap cetak untuk pimpinan">PDF</a>
+    <a class="tombol kecil kedua" href="/residu.csv{{ kueri }}">CSV</a>
+    {% if admin %}
+      <form method="post" action="/residu/cocokkan" class="aksi-kanan">
+        <input type="hidden" name="kembali_ke" value="{{ kembali_ke }}">
+        <button type="submit" class="kecil kedua"
+                title="Isi ulang tautan ke data bidang untuk baris yang belum tercocokkan">
+          Cocokkan ulang dengan katalog
+        </button>
+      </form>
+    {% endif %}
+  </div>
+</div>
+
+{# hasil pencarian nomor berkas: arahkan petugas bila hasilnya kosong atau
+   nomornya ada di beberapa tahun; bila tepat satu, dialog Ubah langsung dibuka #}
+{% set cari_berkas = (qp.get('berkas') or '').strip() %}
+{% if cari_berkas %}
+  {% set tahun_ada = per_tahun | selectattr('jumlah') | list %}
+  {% if jumlah == 0 %}
+    <div class="pesan awas hasil-berkas">
+      Nomor berkas <strong class="mono">{{ cari_berkas }}</strong> tidak ditemukan{{ ' di tahun ' ~ th if th }}.
+      {% if ns.n %}
+        Saringan lain juga sedang dipakai ({{ ns.n }}) —
+        <a href="/residu?berkas={{ cari_berkas | urlencode }}{{ ('&tahun=' ~ (th | urlencode)) if th }}">cari tanpa saringan lain</a>.
+      {% elif th and tahun_ada %}
+        Nomor ini ada di tahun
+        {% for t in tahun_ada %}<a href="/residu?tahun={{ t.tahun | urlencode }}{{ ekor }}">{{ t.tahun }}</a>{{ ', ' if not loop.last }}{% endfor %}.
+      {% elif th %}
+        <a href="/residu?{{ sisa | join('&') }}">Cari di semua tahun</a>.
+      {% elif tampil not in ('tidak_ditemukan', 'semua') and per_tampil.tidak_ditemukan %}
+        Berkas ini ada di daftar
+        <a href="/residu?tampil=tidak_ditemukan{{ ekor_tampil }}">Berkas tidak ditemukan</a>.
+      {% endif %}
+    </div>
+  {% elif not th and tahun_ada | length > 1 %}
+    <div class="pesan awas hasil-berkas">
+      Nomor berkas <strong class="mono">{{ cari_berkas }}</strong> ada di {{ tahun_ada | length }} tahun. Pilih tahunnya:
+      {% for t in tahun_ada %}
+        <a href="/residu?tahun={{ t.tahun | urlencode }}{{ ekor }}" class="tombol kecil kedua">{{ t.tahun }}</a>
+      {% endfor %}
+    </div>
+  {% elif jumlah == 1 and baris %}
+    <div id="buka-otomatis" data-target="rinci-{{ baris[0].id }}" hidden></div>
+  {% endif %}
+{% endif %}
+
+
+{# pilihan Tampilkan: bawaannya residu aktif; baris yang berkasnya tidak
+   ditemukan disisihkan, bukan dihapus. Saringan lain tetap terpasang. #}
 <div class="tab tab-tampil">
   <span class="kecil redup">Tampilkan:</span>
   <a href="/residu{{ '?' ~ (sisa_tampil | join('&')) if sisa_tampil }}"
@@ -38,11 +233,6 @@
 {% endif %}
 
 {# tautan tab menjaga saringan lain tetap terpasang, hanya tahun yang berganti #}
-{% set sisa = [] %}
-{% for k, v in dasar.items() if k not in ('tahun', 'hal') %}
-  {% set _ = sisa.append(k ~ '=' ~ (v | urlencode)) %}
-{% endfor %}
-{% set ekor = ('&' ~ (sisa | join('&'))) if sisa else '' %}
 <div class="tab">
   <a href="/residu{{ '?' ~ (sisa | join('&')) if sisa }}" class="{{ 'aktif' if not th }}">
     Semua tahun ({{ per_tahun | sum(attribute='jumlah') | angka }})
@@ -96,137 +286,6 @@
     <div class="nilai" data-ringkas="blanko_belum">{{ (ringkas.blanko_belum or 0) | angka }}</div>
     <div class="label">Blanko belum dicek</div>
   </div>
-</div>
-
-<div class="kartu">
-  <form class="saring" method="get" action="/residu">
-    <div class="bidang-isian isian-lebar">
-      <label for="q">Kata kunci</label>
-      <input type="text" id="q" name="q" value="{{ qp.get('q', '') }}"
-             placeholder="tahun / nomor hak / nama pemegang / nomor berkas / seri blanko"
-             class="lebar-penuh">
-    </div>
-    <div class="bidang-isian">
-      <label for="tahun">Tahun</label>
-      <select id="tahun" name="tahun">
-        <option value="">Semua tahun</option>
-        {% for t in semua_tahun %}
-          <option value="{{ t.tahun }}" {{ 'selected' if th == t.tahun }}>{{ t.tahun }}</option>
-        {% endfor %}
-        <option value="(tanpa tahun)" {{ 'selected' if th == '(tanpa tahun)' }}>(tanpa tahun)</option>
-      </select>
-    </div>
-    <div class="bidang-isian">
-      <label for="kecamatan">Kecamatan</label>
-      <select id="kecamatan" name="kecamatan">
-        <option value="">Semua</option>
-        {% for k in kecamatan %}
-          <option value="{{ k.nama_kecamatan }}" {{ 'selected' if kec_terpilih == k.nama_kecamatan }}>{{ k.nama_kecamatan }}</option>
-        {% endfor %}
-      </select>
-    </div>
-    <div class="bidang-isian">
-      <label for="desa">Desa</label>
-      <select id="desa" name="desa">
-        <option value="">Semua</option>
-        {% for d in desa_tampil %}
-          <option value="{{ d.id }}" {{ 'selected' if qp.get('desa') == d.id | string }}>
-            {{ d.nama_desa }}{{ '' if kec_terpilih else ' (' ~ d.nama_kecamatan ~ ')' }}
-          </option>
-        {% endfor %}
-      </select>
-    </div>
-    <div class="bidang-isian">
-      <label for="tipologi">Tipologi</label>
-      <select id="tipologi" name="tipologi">
-        <option value="">Semua</option>
-        {% for t in daftar_tipologi %}
-          <option value="{{ t.kode }}" {{ 'selected' if qp.get('tipologi') == t.kode }}>
-            {{ t.kode }}{{ ' — ' ~ t.nama if t.nama }} ({{ hitung_tipologi.get(t.kode, 0) }})
-          </option>
-        {% endfor %}
-      </select>
-    </div>
-    <div class="bidang-isian">
-      <label for="catatan">Catatan</label>
-      <select id="catatan" name="catatan">
-        <option value="">Semua</option>
-        {% for kel, daftar in grup_catatan %}
-          <optgroup label="{{ kel }}">
-            {% for c in daftar %}
-              <option value="{{ c.kode }}" {{ 'selected' if qp.get('catatan') == c.kode }}>
-                {{ c.teks }}
-              </option>
-            {% endfor %}
-          </optgroup>
-        {% endfor %}
-      </select>
-    </div>
-    <div class="bidang-isian">
-      <label for="serah">Penyerahan</label>
-      <select id="serah" name="serah">
-        <option value="">Semua</option>
-        <option value="belum" {{ 'selected' if qp.get('serah') == 'belum' }}>Belum diserahkan</option>
-        <option value="sudah" {{ 'selected' if qp.get('serah') == 'sudah' }}>Sudah diserahkan</option>
-      </select>
-    </div>
-    <div class="bidang-isian">
-      <label for="status">Status tindak lanjut</label>
-      <select id="status" name="status">
-        <option value="">Semua</option>
-        {% for s in pilihan.status_residu %}
-          <option value="{{ s }}" {{ 'selected' if qp.get('status') == s }}>{{ s }}</option>
-        {% endfor %}
-      </select>
-    </div>
-    <div class="bidang-isian">
-      <label for="blanko">Blanko</label>
-      <select id="blanko" name="blanko">
-        <option value="">Semua</option>
-        <option value="belum" {{ 'selected' if qp.get('blanko') == 'belum' }}>Belum dicek</option>
-        {% for b in pilihan.blanko %}
-          <option value="{{ b }}" {{ 'selected' if qp.get('blanko') == b }}>{{ b }}</option>
-        {% endfor %}
-      </select>
-    </div>
-    <div class="bidang-isian">
-      <label for="cocok">Pencocokan</label>
-      <select id="cocok" name="cocok">
-        <option value="">Semua</option>
-        <option value="cocok" {{ 'selected' if qp.get('cocok') == 'cocok' }}>Cocok dengan bidang</option>
-        <option value="belum" {{ 'selected' if qp.get('cocok') == 'belum' }}>Belum tercocokkan</option>
-      </select>
-    </div>
-    <div class="bidang-isian">
-      <label>&nbsp;</label>
-      <div style="display:flex; gap:6px">
-        <button type="submit">Cari</button>
-        <a href="/residu" class="tombol kedua">Reset</a>
-      </div>
-    </div>
-  </form>
-
-  <p class="kecil" style="margin:12px 0 0; display:flex; gap:8px; flex-wrap:wrap; align-items:center">
-    <a class="tombol kecil" href="/residu.xlsx{{ ('?' ~ request.url.query) if request.url.query }}"
-       title="Unduh data residu beserta catatannya sesuai saringan yang sedang dipakai">Unduh Excel</a>
-    <a class="tombol kecil" href="/residu.pdf{{ ('?' ~ request.url.query) if request.url.query }}" target="_blank"
-       title="Daftar residu siap cetak untuk pimpinan, sesuai saringan yang sedang dipakai">Unduh PDF</a>
-    <a class="tombol kecil kedua" href="/residu.csv{{ ('?' ~ request.url.query) if request.url.query }}">Unduh CSV</a>
-    <a class="tombol kecil kedua" href="/residu/rekap"
-       title="Rekap harian pengecekan blanko per petugas dan per desa">Rekap pengecekan blanko</a>
-    <a class="tombol kecil kedua" href="/residu/catatan"
-       title="Susun kalimat catatan yang tinggal dicentang di borang Ubah">Catatan residu</a>
-    {% if admin %}
-      <a class="tombol kecil kedua" href="/residu/impor">Impor berkas residu</a>
-      <form method="post" action="/residu/cocokkan" style="display:inline">
-        <input type="hidden" name="kembali_ke" value="{{ kembali_ke }}">
-        <button type="submit" class="kecil kedua"
-                title="Isi ulang tautan ke data bidang untuk baris yang belum tercocokkan">
-          Cocokkan ulang
-        </button>
-      </form>
-    {% endif %}
-  </p>
 </div>
 
 {# daftar desa lengkap, dipakai untuk menyusun ulang pilihan saat kecamatan diganti #}
@@ -448,9 +507,14 @@
   });
 })();
 
-// Dialog Ubah: dibuka dari tombol pada barisnya, ditutup lewat tombol Batal,
-// tombol silang, tekan Esc, atau klik di luar kotaknya. Menutupnya diberi
-// kelas dulu supaya sempat bergerak, baru dialognya benar-benar ditutup.
+// ===================================================================
+// DIALOG UBAH RESIDU
+// Satu dialog per baris. Bisa ditutup (Batal, tombol silang, Esc, klik di
+// luar kotak) atau pindah ke baris sebelum/sesudahnya. Bila isiannya sudah
+// diubah tetapi belum disimpan, petugas ditanya dulu di kaki dialog -
+// perubahan tidak pernah hilang diam-diam.
+// ===================================================================
+
 // kolom hasil impor yang bisa dilengkapi lewat dialog Ubah -> sel tabelnya
 var SEL_LENGKAPI = {
   tahun: '.sel-tahun', nomor_berkas: '.sel-berkas', nama_pemegang: '.sel-pemegang',
@@ -458,11 +522,88 @@ var SEL_LENGKAPI = {
   keterangan: null
 };
 
+function hariIniLokal() {
+  var d = new Date();
+  var dua = function (n) { return (n < 10 ? '0' : '') + n; };
+  return d.getFullYear() + '-' + dua(d.getMonth() + 1) + '-' + dua(d.getDate());
+}
+
+// isi borang sebagai teks, untuk tahu apakah ada yang berubah sejak dibuka
+function potretBorang(borang) {
+  var fd = new FormData(borang);
+  fd.delete('kembali_ke');
+  return new URLSearchParams(fd).toString();
+}
+
+// sesudah tersimpan, isian yang sekarang dijadikan nilai bawaan supaya
+// "Buang perubahan" (form.reset) kembali ke keadaan tersimpan, bukan ke
+// keadaan saat halaman pertama dimuat
+function jadikanBawaan(borang) {
+  Array.prototype.forEach.call(borang.elements, function (el) {
+    if (el.type === 'checkbox' || el.type === 'radio') {
+      el.defaultChecked = el.checked;
+    } else if (el.tagName === 'SELECT') {
+      Array.prototype.forEach.call(el.options, function (o) { o.defaultSelected = o.selected; });
+    } else if ('defaultValue' in el) {
+      el.defaultValue = el.value;
+    }
+  });
+}
+
+// beri tahu bagian-bagian dialog supaya menyesuaikan tampilannya lagi
+// (dipakai sesudah borang dikembalikan atau diisi lewat JavaScript)
+function segarkanDialog(dialog) {
+  dialog.dispatchEvent(new CustomEvent('segarkan'));
+}
+
+function barisData() {
+  return Array.prototype.slice.call(document.querySelectorAll('tr.baris-data'));
+}
+
+function dialogTetangga(dialog, arah) {
+  var semua = barisData();
+  for (var i = 0; i < semua.length; i++) {
+    if (semua[i].dataset.id === dialog.dataset.id) {
+      var tr = semua[i + arah];
+      return tr ? document.getElementById('rinci-' + tr.dataset.id) : null;
+    }
+  }
+  return null;
+}
+
 var MODAL = (function () {
   var LAMA = 180;
 
+  // disiapkan setiap kali dibuka: posisi baris, tombol pindah, dan potret
+  // isian sebagai patokan "ada perubahan"
+  function siapkan(dialog) {
+    var borang = dialog.querySelector('form');
+    var semua = barisData();
+    var urut = semua.findIndex(function (tr) { return tr.dataset.id === dialog.dataset.id; });
+    var sebelum = dialogTetangga(dialog, -1);
+    var berikut = dialogTetangga(dialog, 1);
+
+    var posisi = dialog.querySelector('.posisi-rinci');
+    if (posisi) { posisi.textContent = urut >= 0 ? 'Baris ' + (urut + 1) + ' dari ' + semua.length : ''; }
+    dialog.querySelector('.rinci-sebelum').disabled = !sebelum;
+    dialog.querySelector('.rinci-berikut').disabled = !berikut;
+
+    // baris terakhir di halaman: tidak ada "berikutnya", Simpan jadi tombol utama
+    var lanjut = dialog.querySelector('.simpan-lanjut');
+    var saja = dialog.querySelector('.simpan-saja');
+    lanjut.hidden = !berikut;
+    saja.classList.toggle('hijau', !berikut);
+    saja.classList.toggle('kedua', !!berikut);
+
+    sembunyikanKonfirmasi(dialog);
+    dialog._awal = potretBorang(borang);
+    dialog.querySelector('.kabar-ubah').hidden = true;
+    segarkanDialog(dialog);
+  }
+
   function buka(dialog) {
     if (!dialog || dialog.open) { return; }
+    siapkan(dialog);
     dialog.showModal();
     document.body.classList.add('modal-terbuka');
     requestAnimationFrame(function () { dialog.classList.add('tampil'); });
@@ -473,13 +614,47 @@ var MODAL = (function () {
     dialog.classList.remove('tampil');
     setTimeout(function () {
       dialog.close();
-      document.body.classList.remove('modal-terbuka');
       if (sesudah) { sesudah(); }
     }, LAMA);
   }
 
-  return { buka: buka, tutup: tutup };
+  // pindah baris: dialog lama langsung ditutup, yang baru dibuka
+  function ganti(dari, ke) {
+    dari.classList.remove('tampil');
+    dari.close();
+    buka(ke);
+    // tombol Ubah di baris tujuan ikut terlihat bila dialog ditutup nanti
+    var tr = document.querySelector('tr.baris-data[data-id="' + ke.dataset.id + '"]');
+    if (tr) { tr.scrollIntoView({ block: 'nearest' }); }
+  }
+
+  return { buka: buka, tutup: tutup, ganti: ganti };
 })();
+
+function berubah(dialog) {
+  return potretBorang(dialog.querySelector('form')) !== dialog._awal;
+}
+
+function tampilkanKonfirmasi(dialog, lanjut) {
+  var kaki = dialog.querySelector('.kaki-modal');
+  dialog._lanjut = lanjut;
+  kaki.classList.add('minta-konfirmasi');
+  kaki.querySelector('.konfirmasi-buang').hidden = false;
+  kaki.querySelector('.batal-buang').focus();
+}
+
+function sembunyikanKonfirmasi(dialog) {
+  var kaki = dialog.querySelector('.kaki-modal');
+  dialog._lanjut = null;
+  kaki.classList.remove('minta-konfirmasi');
+  kaki.querySelector('.konfirmasi-buang').hidden = true;
+}
+
+// semua jalan keluar dari dialog lewat sini
+function mintaPergi(dialog, lanjut) {
+  if (berubah(dialog)) { tampilkanKonfirmasi(dialog, lanjut); }
+  else { lanjut(); }
+}
 
 document.querySelectorAll('.buka-rinci').forEach(function (t) {
   t.addEventListener('click', function () {
@@ -488,31 +663,76 @@ document.querySelectorAll('.buka-rinci').forEach(function (t) {
 });
 
 document.querySelectorAll('.modal-rinci').forEach(function (dialog) {
+  var borang = dialog.querySelector('form');
+  var tutupSaja = function () { MODAL.tutup(dialog); };
+
   dialog.querySelectorAll('.tutup-modal').forEach(function (t) {
-    t.addEventListener('click', function () { MODAL.tutup(dialog); });
+    t.addEventListener('click', function () { mintaPergi(dialog, tutupSaja); });
   });
 
-  // klik pada latar gelap di luar kotak dialog ikut menutup
+  // klik pada latar gelap di luar kotak dialog
   dialog.addEventListener('click', function (e) {
-    if (e.target === dialog) { MODAL.tutup(dialog); }
+    if (e.target === dialog) { mintaPergi(dialog, tutupSaja); }
   });
 
-  // Esc: ditahan dulu supaya menutupnya ikut bergerak seperti yang lain
+  // Esc: bila sedang ditanya, Esc berarti kembali mengisi
   dialog.addEventListener('cancel', function (e) {
     e.preventDefault();
-    MODAL.tutup(dialog);
+    if (dialog._lanjut) { sembunyikanKonfirmasi(dialog); return; }
+    mintaPergi(dialog, tutupSaja);
   });
 
   dialog.addEventListener('close', function () {
     dialog.classList.remove('tampil');
-    document.body.classList.remove('modal-terbuka');
+    if (!document.querySelector('dialog.modal-rinci[open]')) {
+      document.body.classList.remove('modal-terbuka');
+    }
+  });
+
+  // pindah ke baris sebelum / sesudahnya
+  [['.rinci-sebelum', -1], ['.rinci-berikut', 1]].forEach(function (p) {
+    dialog.querySelector(p[0]).addEventListener('click', function () {
+      var ke = dialogTetangga(dialog, p[1]);
+      if (ke) { mintaPergi(dialog, function () { MODAL.ganti(dialog, ke); }); }
+    });
+  });
+
+  // jawaban atas pertanyaan "perubahan belum disimpan"
+  dialog.querySelector('.batal-buang').addEventListener('click', function () {
+    sembunyikanKonfirmasi(dialog);
+  });
+  dialog.querySelector('.ya-buang').addEventListener('click', function () {
+    var lanjut = dialog._lanjut;
+    borang.reset();
+    sembunyikanKonfirmasi(dialog);
+    dialog.querySelector('.kabar-ubah').hidden = true;
+    segarkanDialog(dialog);
+    if (lanjut) { lanjut(); }
+  });
+
+  // penanda "ada perubahan" di kaki dialog
+  var tandaiUbah = function () {
+    dialog.querySelector('.kabar-ubah').hidden = !berubah(dialog);
+  };
+  borang.addEventListener('input', tandaiUbah);
+  borang.addEventListener('change', tandaiUbah);
+  dialog.addEventListener('segarkan', tandaiUbah);
+
+  // Ctrl+Enter (Cmd+Enter di Mac) menyimpan
+  dialog.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault();
+      var tombol = dialog.querySelector('.simpan-saja');
+      if (borang.requestSubmit) { borang.requestSubmit(tombol); } else { tombol.click(); }
+    }
   });
 });
 
-// Simpan satu baris tanpa memuat ulang halaman: penanda status, angka di
-// kepala halaman, dan keterangan "terakhir diubah" diperbarui di tempat,
-// panelnya menutup sendiri, lalu barisnya disorot sebentar sebagai tanda.
-// Bila fetch gagal atau sesi sudah habis, borangnya dikirim cara biasa.
+// Simpan satu baris tanpa memuat ulang halaman: penanda status (di tabel dan
+// di kepala dialog), angka di kepala halaman, dan keterangan "terakhir
+// diubah" diperbarui di tempat. "Simpan" lalu menutup dialog; "Simpan &
+// berikutnya" langsung membuka baris sesudahnya. Bila fetch gagal atau sesi
+// sudah habis, borangnya dikirim cara biasa.
 (function () {
   function sorot(baris) {
     baris.classList.remove('baris-tersimpan');
@@ -547,9 +767,11 @@ document.querySelectorAll('.modal-rinci').forEach(function (dialog) {
       var dialog = borang.closest('.modal-rinci');
       var baris = document.querySelector('tr.baris-data[data-id="' + id + '"]');
       var kabar = borang.querySelector('.kabar-simpan');
-      var tombol = borang.querySelector('button[type="submit"]');
+      var tombolSimpan = borang.querySelectorAll('button[type="submit"]');
+      var lanjut = !!(e.submitter && e.submitter.dataset.lanjut);
+      var berikut = lanjut ? dialogTetangga(dialog, 1) : null;
 
-      tombol.disabled = true;
+      tombolSimpan.forEach(function (t) { t.disabled = true; });
       kabar.className = 'kabar-simpan sedang';
       kabar.textContent = 'Menyimpan…';
 
@@ -569,6 +791,8 @@ document.querySelectorAll('.modal-rinci').forEach(function (dialog) {
 
         var sel = baris && baris.querySelector('.sel-status');
         if (sel) { sel.innerHTML = hasil.sel_status; }
+        var stModal = dialog.querySelector('.status-modal');
+        if (stModal) { stModal.innerHTML = hasil.sel_status; }
         var diubah = dialog.querySelector('.sel-diubah');
         if (diubah) { diubah.textContent = hasil.diubah; }
         if (hasil.ringkas) { pasangAngka(hasil.ringkas); }
@@ -617,27 +841,37 @@ document.querySelectorAll('.modal-rinci').forEach(function (dialog) {
           if (tb) { tb.remove(); }
         });
 
+        // keadaan tersimpan menjadi patokan baru untuk "ada perubahan"
+        jadikanBawaan(borang);
+        dialog._awal = potretBorang(borang);
+        dialog.querySelector('.kabar-ubah').hidden = true;
+
         kabar.className = 'kabar-simpan berhasil';
         kabar.textContent = '✓ Tersimpan';
-        tombol.disabled = false;
+        tombolSimpan.forEach(function (t) { t.disabled = false; });
 
-        // beri jeda sebentar supaya tanda tersimpannya sempat terbaca
-        setTimeout(function () {
-          MODAL.tutup(dialog, function () {
-            kabar.className = 'kabar-simpan';
-            kabar.textContent = '';
-            // baris yang baru disimpan dibawa ke layar bila sedang tergulir
-            // jauh, supaya sorotannya benar-benar terlihat
-            if (baris) {
-              baris.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-              sorot(baris);
-            }
-          });
-        }, 700);
+        var bersihkan = function () { kabar.className = 'kabar-simpan'; kabar.textContent = ''; };
+        if (baris) { sorot(baris); }
+
+        if (berikut) {
+          // jeda pendek supaya tanda tersimpan sempat terlihat, lalu lanjut
+          setTimeout(function () { bersihkan(); MODAL.ganti(dialog, berikut); }, 350);
+        } else {
+          setTimeout(function () {
+            MODAL.tutup(dialog, function () {
+              bersihkan();
+              // baris yang baru disimpan dibawa ke layar bila tergulir jauh
+              if (baris) {
+                baris.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+                sorot(baris);
+              }
+            });
+          }, 700);
+        }
       }).catch(function (galat) {
         kabar.className = 'kabar-simpan gagal';
         kabar.textContent = 'Gagal menyimpan: ' + galat.message + '. Coba lagi.';
-        tombol.disabled = false;
+        tombolSimpan.forEach(function (t) { t.disabled = false; });
       });
     });
   });
@@ -655,11 +889,73 @@ document.querySelectorAll('.modal-rinci').forEach(function (dialog) {
       isian.hidden = false;
       var deret = tombol.parentNode;
       tombol.remove();
-      // label "Isi juga:" ikut hilang bila tombolnya sudah habis
       if (!deret.querySelector('.tambah-isian')) { deret.remove(); }
       var fokus = isian.querySelector('input:not([type="checkbox"])') || isian.querySelector('input');
       if (fokus) { fokus.focus(); }
     });
+  });
+})();
+
+// Penyerahan sertipikat & kondisi berkas:
+// - mencentang "sudah diserahkan" mengisi tanggal serah dengan hari ini bila
+//   masih kosong (tetap bisa diganti)
+// - bila status dan centang penyerahan tidak sejalan, muncul saran satu klik
+// - isian keterangan "berkas tidak ditemukan" hanya tampil bila dicentang
+(function () {
+  var SERAH = 'Sudah Diserahkan';
+
+  document.querySelectorAll('.modal-rinci').forEach(function (dialog) {
+    var borang = dialog.querySelector('form');
+    var serah = borang.querySelector('input[name="sudah_diserahkan"]');
+    var tanggal = borang.querySelector('input[name="tanggal_serah"]');
+    var status = borang.querySelector('select[name="status"]');
+    var saran = borang.querySelector('.saran-status');
+    var tidakAda = borang.querySelector('input[name="tidak_ditemukan"]');
+    var isiTidakAda = borang.querySelector('.isi-tidak-ditemukan');
+    var punyaSerah = status && Array.prototype.some.call(status.options, function (o) { return o.value === SERAH; });
+
+    function perbaruiSaran() {
+      if (!saran || !punyaSerah) { return; }
+      var teks = saran.querySelector('.saran-teks');
+      var tombol = saran.querySelector('.saran-terapkan');
+      if (serah.checked && status.value !== SERAH) {
+        teks.textContent = 'Status masih "' + (status.value || 'belum diisi') + '".';
+        tombol.textContent = 'Ubah status jadi "' + SERAH + '"';
+        tombol.onclick = function () {
+          status.value = SERAH;
+          status.dispatchEvent(new Event('change', { bubbles: true }));
+        };
+        saran.hidden = false;
+      } else if (!serah.checked && status.value === SERAH) {
+        teks.textContent = 'Status "' + SERAH + '", tetapi penyerahan belum dicentang.';
+        tombol.textContent = 'Centang penyerahan';
+        tombol.onclick = function () {
+          serah.checked = true;
+          serah.dispatchEvent(new Event('change', { bubbles: true }));
+        };
+        saran.hidden = false;
+      } else {
+        saran.hidden = true;
+      }
+    }
+
+    function perbaruiTidakAda() {
+      isiTidakAda.hidden = !tidakAda.checked;
+      tidakAda.closest('.tanda-tidak-ditemukan').classList.toggle('aktif', tidakAda.checked);
+    }
+
+    serah.addEventListener('change', function () {
+      if (serah.checked && !tanggal.value) { tanggal.value = hariIniLokal(); }
+      perbaruiSaran();
+    });
+    status.addEventListener('change', perbaruiSaran);
+    tidakAda.addEventListener('change', function () {
+      perbaruiTidakAda();
+      if (tidakAda.checked) { isiTidakAda.querySelector('input').focus(); }
+    });
+    dialog.addEventListener('segarkan', function () { perbaruiSaran(); perbaruiTidakAda(); });
+    perbaruiSaran();
+    perbaruiTidakAda();
   });
 })();
 
@@ -670,9 +966,11 @@ document.querySelectorAll('.modal-rinci').forEach(function (dialog) {
 (function () {
   document.querySelectorAll('.catatan-cepat').forEach(function (kotak) {
     var borang = kotak.closest('form');
+    var dialog = kotak.closest('.modal-rinci');
+    var panel = kotak.closest('.panel-catatan') || kotak;
     var tindak = borang.querySelector('select[name="tindak_lanjut"]');
-    var jml = kotak.querySelector('.jml-catatan');
-    var tombol = kotak.querySelector('.semua-catatan');
+    var jml = panel.querySelector('.jml-catatan');
+    var tombol = panel.querySelector('.semua-catatan');
     var semua = false;
 
     function segarkan() {
@@ -683,8 +981,7 @@ document.querySelectorAll('.modal-rinci').forEach(function (dialog) {
         g.hidden = !(semua || kel === 'Umum' || kel === pilihan || tercentang);
       });
       if (jml) {
-        jml.textContent =
-          kotak.querySelectorAll('input[type="checkbox"]:checked').length;
+        jml.textContent = kotak.querySelectorAll('input[type="checkbox"]:checked').length;
       }
     }
 
@@ -697,8 +994,52 @@ document.querySelectorAll('.modal-rinci').forEach(function (dialog) {
     }
     if (tindak) { tindak.addEventListener('change', segarkan); }
     kotak.addEventListener('change', segarkan);
+    if (dialog) { dialog.addEventListener('segarkan', segarkan); }
     segarkan();
   });
+})();
+
+// Pencarian cepat nomor berkas + tahun:
+// - petunjuk di bawah isian mengikuti tahun yang dipilih
+// - pencarian nomor berkas yang hasilnya tepat satu langsung membuka dialog Ubah
+// - di layar lebar kotak nomor berkas langsung siap diketik (isinya terpilih,
+//   jadi nomor berikutnya tinggal diketik menimpa)
+(function () {
+  var tahun = document.getElementById('tahun');
+  var berkas = document.getElementById('berkas');
+  var petunjuk = document.getElementById('petunjuk-berkas');
+  if (tahun && petunjuk) {
+    tahun.addEventListener('change', function () {
+      petunjuk.textContent = tahun.value
+        ? petunjuk.dataset.tahun.replace('{tahun}', tahun.value)
+        : petunjuk.dataset.semua;
+    });
+  }
+
+  // isian kosong tidak ikut dikirim supaya alamat halaman tetap pendek
+  // dan mudah dibagikan, mis. /residu?tahun=2021&berkas=10380
+  if (berkas && berkas.form) {
+    var saring = berkas.form;
+    saring.addEventListener('submit', function () {
+      Array.prototype.forEach.call(saring.elements, function (el) {
+        if (el.name && !el.disabled && el.value === '') { el.disabled = true; el.dataset.kosong = '1'; }
+      });
+    });
+    // kembali lewat tombol Back: isian yang tadi dimatikan dihidupkan lagi
+    window.addEventListener('pageshow', function () {
+      saring.querySelectorAll('[data-kosong]').forEach(function (el) {
+        el.disabled = false; delete el.dataset.kosong;
+      });
+    });
+  }
+
+  var otomatis = document.getElementById('buka-otomatis');
+  if (otomatis) {
+    MODAL.buka(document.getElementById(otomatis.dataset.target));
+  } else if (berkas && window.matchMedia('(min-width: 993px)').matches) {
+    berkas.focus({ preventScroll: true });
+    berkas.select();
+  }
 })();
 </script>
 

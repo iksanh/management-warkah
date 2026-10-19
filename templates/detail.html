@@ -10,7 +10,7 @@
 {% set pesan = daftar_pesan.get(request.query_params.get('pesan')) %}
 {% if pesan %}<div class="pesan {{ pesan[0] }}">{{ pesan[1] }}</div>{% endif %}
 
-<p class="kecil"><a href="/katalog">‹ Kembali ke katalog</a></p>
+<p class="kecil"><a href="/katalog" data-kembali>‹ Kembali ke katalog</a></p>
 <h1 class="mono">{{ d.nomor_hak }}</h1>
 <p class="jelas">
   {{ d.nama_hak }} · {{ d.nama_desa }}, Kec. {{ d.nama_kecamatan }}

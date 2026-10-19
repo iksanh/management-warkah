@@ -7,12 +7,13 @@
 {% if r.sudah_diserahkan %}
   <span class="tanda hijau">Diserahkan</span>
 {% else %}
-  <span class="tanda oranye">Belum</span>
+  <span class="tanda oranye">Belum diserahkan</span>
 {% endif %}
 {% if not r.bidang_id %}
   <span class="tanda merah" title="Nomor hak ini belum ada di tabel bidang">Belum cocok</span>
 {% endif %}
-{% if r.status %}<span class="tanda biru">{{ r.status }}</span>{% endif %}
+{# status "Sudah Diserahkan" tidak diulang bila penanda Diserahkan sudah tampil #}
+{% if r.status and not (r.sudah_diserahkan and r.status == 'Sudah Diserahkan') %}<span class="tanda biru">{{ r.status }}</span>{% endif %}
 {% set kode_ct = (r.catatan_kode or '').split(',') | select | list %}
 {% if kode_ct %}
   {% set teks_ct = [] %}

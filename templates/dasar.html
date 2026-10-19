@@ -4,40 +4,285 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{% block judul %}Aplikasi Warkah{% endblock %}</title>
+<script>
+  /* pulihkan pilihan sidebar diciutkan sebelum halaman tergambar, supaya tidak berkedip */
+  /* belum pernah dipilih: di layar laptop kecil mulai diciutkan, supaya
+     tabel lebar seperti katalog tetap muat */
+  (function () {
+    var pilihan = null;
+    try { pilihan = localStorage.getItem('warkah-sisi'); } catch (e) {}
+    if (pilihan === 'ciut' || (!pilihan && window.innerWidth < 1400)) {
+      document.documentElement.classList.add('sisi-ciut');
+    }
+  })();
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,100..900&display=swap">
 <link rel="stylesheet" href="/static/style.css?v={{ versi_gaya() }}">
 </head>
 <body>
 
-<header class="utama">
-  <div class="merek">
-    ARSIP WARKAH
-    <small>Kantor Pertanahan Kabupaten Bone Bolango</small>
-  </div>
-  <nav class="utama">
-    <a href="/"            class="{{ 'aktif' if path == '/' }}">Beranda</a>
-    <a href="/katalog"     class="{{ 'aktif' if path.startswith('/katalog') or path.startswith('/bidang') }}">Katalog</a>
-    <a href="/sirkulasi"   class="{{ 'aktif' if path.startswith('/sirkulasi') }}">Sirkulasi</a>
-    <a href="/monitoring"  class="{{ 'aktif' if path.startswith('/monitoring') }}">Monitoring</a>
-    <a href="/rekap"       class="{{ 'aktif' if path.startswith('/rekap') }}">Rekap</a>
-    <a href="/residu"      class="{{ 'aktif' if path.startswith('/residu') }}">Residu</a>
-    {% if admin %}
-      <a href="/impor"     class="{{ 'aktif' if path.startswith('/impor') }}">Impor</a>
-      <a href="/pengguna"  class="{{ 'aktif' if path.startswith('/pengguna') }}">Pengguna</a>
-    {% endif %}
-  </nav>
-  <div class="petugas-kotak">
-    <div class="petugas-nama">
-      {{ pengguna.nama }}
-      <span class="tanda {{ 'ungu' if admin else 'biru' }}">{{ pengguna.peran }}</span>
-    </div>
-    <a href="/ganti-sandi" class="tautan-kepala">Ganti sandi</a>
-    <a href="/keluar" class="tautan-kepala">Keluar</a>
-  </div>
-</header>
+{# satu butir menu: ikon + teks. Saat sidebar diciutkan, teksnya berubah jadi
+   keterangan melayang, tetapi tetap terbaca oleh pembaca layar. #}
+{% macro menu(href, label, aktif, ikon) -%}
+  <a href="{{ href }}" class="menu{{ ' aktif' if aktif }}"{% if aktif %} aria-current="page"{% endif %}>
+    <svg class="ikon" viewBox="0 0 24 24" aria-hidden="true">{{ ikon | safe }}</svg>
+    <span class="menu-teks">{{ label }}</span>
+  </a>
+{%- endmacro %}
 
-<main>
-{% block isi %}{% endblock %}
-</main>
+<a class="lompat-isi" href="#isi">Lewati ke isi halaman</a>
+
+<div class="kerangka">
+
+  <aside class="sisi" id="sisi" aria-label="Navigasi">
+    <div class="sisi-kepala">
+      <a href="/" class="merek" aria-label="Arsip Warkah, ke beranda">
+        <svg class="lambang" viewBox="0 0 32 32" aria-hidden="true">
+          <path d="M3 9a2 2 0 0 1 2-2h7l3 3h12a2 2 0 0 1 2 2v13a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" fill="currentColor"/>
+          <path d="M8 16h16M8 20h10" stroke="#16343f" stroke-width="2" stroke-linecap="round"/>
+        </svg>
+        <span class="merek-teks">
+          Arsip Warkah
+          <small>Kantah Kab. Bone Bolango</small>
+        </span>
+      </a>
+      <button type="button" class="tombol-ikon tutup-laci" data-tutup-laci aria-label="Tutup menu">
+        <svg class="ikon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>
+      </button>
+    </div>
+
+    <nav class="sisi-menu" aria-label="Menu utama">
+      {{ menu('/', 'Beranda', path == '/',
+              '<path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/><path d="M10 21v-6h4v6"/>') }}
+
+      <div class="menu-grup" role="group" aria-labelledby="g-arsip">
+        <p class="grup-nama" id="g-arsip">Arsip</p>
+        {{ menu('/katalog', 'Katalog', path.startswith('/katalog') or path.startswith('/bidang'),
+                '<circle cx="11" cy="11" r="6.5"/><path d="m16 16 4.5 4.5"/>') }}
+        {{ menu('/sirkulasi', 'Sirkulasi', path.startswith('/sirkulasi'),
+                '<path d="M4 8h14l-3.5-3.5"/><path d="M20 16H6l3.5 3.5"/>') }}
+      </div>
+
+      <div class="menu-grup" role="group" aria-labelledby="g-inv">
+        <p class="grup-nama" id="g-inv">Inventarisasi</p>
+        {{ menu('/monitoring', 'Monitoring',
+                path == '/monitoring' or path.startswith('/monitoring/laporan'),
+                '<path d="M3 21h18"/><path d="M6 17v-5"/><path d="M11 17V7"/><path d="M16 17v-8"/>') }}
+        {{ menu('/monitoring/desa', 'Penugasan desa', path.startswith('/monitoring/desa'),
+                '<path d="M12 21s-7-6.2-7-11.5a7 7 0 0 1 14 0C19 14.8 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.5"/>') }}
+        {{ menu('/rekap', 'Rekap per desa', path.startswith('/rekap'),
+                '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18M3 15h18M9 4v16"/>') }}
+      </div>
+
+      <div class="menu-grup" role="group" aria-labelledby="g-res">
+        <p class="grup-nama" id="g-res">Residu PTSL</p>
+        {{ menu('/residu', 'Daftar residu', path == '/residu',
+                '<path d="M7 3h7l5 5v13H7z"/><path d="M14 3v5h5"/><path d="M10 13h6M10 17h4"/>') }}
+        {{ menu('/residu/rekap', 'Rekap blanko', path.startswith('/residu/rekap'),
+                '<path d="m4 6 1.5 1.5L8 5"/><path d="M11 6h9"/><path d="m4 12 1.5 1.5L8 11"/><path d="M11 12h9"/><path d="m4 18 1.5 1.5L8 17"/><path d="M11 18h9"/>') }}
+        {{ menu('/residu/catatan', 'Catatan residu', path.startswith('/residu/catatan'),
+                '<path d="M4 20h4L19 9l-4-4L4 16z"/><path d="m13 7 4 4"/>') }}
+      </div>
+
+      {% if admin %}
+      <div class="menu-grup" role="group" aria-labelledby="g-adm">
+        <p class="grup-nama" id="g-adm">Admin</p>
+        {{ menu('/impor', 'Impor data bidang', path.startswith('/impor'),
+                '<path d="M12 15V4"/><path d="m7 9 5-5 5 5"/><path d="M4 15v4a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-4"/>') }}
+        {{ menu('/residu/impor', 'Impor residu', path.startswith('/residu/impor'),
+                '<path d="M7 3h7l5 5v13H7z"/><path d="M14 3v5h5"/><path d="M13 18v-6"/><path d="m10.5 14.5 2.5-2.5 2.5 2.5"/>') }}
+        {{ menu('/pengguna', 'Pengguna', path.startswith('/pengguna'),
+                '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><path d="M16 4.5a3.5 3.5 0 0 1 0 7"/><path d="M18 14a6.5 6.5 0 0 1 3.5 6"/>') }}
+      </div>
+      {% endif %}
+    </nav>
+
+    <div class="sisi-kaki">
+      <div class="petugas">
+        <span class="inisial" aria-hidden="true">{{ (pengguna.nama or '?')[:1] | upper }}</span>
+        <span class="petugas-teks">
+          <span class="petugas-nama">{{ pengguna.nama }}</span>
+          <span class="petugas-peran">{{ pengguna.peran }}</span>
+        </span>
+        <span class="petugas-aksi">
+          <a href="/ganti-sandi" class="menu menu-ikon{{ ' aktif' if path.startswith('/ganti-sandi') }}" aria-label="Ganti sandi">
+            <svg class="ikon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="8" cy="15" r="4"/><path d="m11 12 9-9"/><path d="m17 6 3 3"/></svg>
+            <span class="menu-teks">Ganti sandi</span>
+          </a>
+          <a href="/keluar" class="menu menu-ikon" aria-label="Keluar">
+            <svg class="ikon" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 21H5a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h4"/><path d="m16 17 5-5-5-5"/><path d="M21 12H9"/></svg>
+            <span class="menu-teks">Keluar</span>
+          </a>
+        </span>
+      </div>
+      <button type="button" class="menu ciutkan" data-ciutkan aria-pressed="false">
+        <svg class="ikon" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/><path d="m15.5 10-2 2 2 2"/></svg>
+        <span class="menu-teks">Ciutkan menu</span>
+      </button>
+    </div>
+  </aside>
+
+  <div class="tirai" data-tutup-laci hidden></div>
+
+  <div class="badan">
+    {# hanya tampil di layar sempit: tombol pembuka menu + nama aplikasi #}
+    <header class="bilah-atas">
+      <button type="button" class="tombol-ikon" data-buka-laci aria-controls="sisi" aria-expanded="false" aria-label="Buka menu">
+        <svg class="ikon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+      </button>
+      <a href="/" class="merek merek-atas">
+        <svg class="lambang" viewBox="0 0 32 32" aria-hidden="true">
+          <path d="M3 9a2 2 0 0 1 2-2h7l3 3h12a2 2 0 0 1 2 2v13a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" fill="currentColor"/>
+          <path d="M8 16h16M8 20h10" stroke="#16343f" stroke-width="2" stroke-linecap="round"/>
+        </svg>
+        Arsip Warkah
+      </a>
+      <span class="inisial" title="{{ pengguna.nama }} ({{ pengguna.peran }})" aria-hidden="true">{{ (pengguna.nama or '?')[:1] | upper }}</span>
+    </header>
+
+    <main id="isi" tabindex="-1">
+    {% block isi %}{% endblock %}
+    </main>
+  </div>
+
+</div>
+
+{# bilah simpan melayang: muncul bila ada centang yang belum disimpan dan
+   tombol Simpan aslinya sedang tidak terlihat di layar #}
+<div class="simpan-melayang" id="simpan-melayang" hidden role="status">
+  <span class="simpan-melayang-teks"></span>
+  <button type="button" class="hijau">Simpan centang</button>
+</div>
+
+<script>
+(function () {
+  var html = document.documentElement;
+  var sisi = document.getElementById('sisi');
+  var tirai = document.querySelector('.tirai');
+  var pembuka = document.querySelector('[data-buka-laci]');
+  var layarSempit = window.matchMedia('(max-width: 1100px)');
+
+  /* ---- laci menu di layar sempit ---- */
+  function bukaLaci() {
+    html.classList.add('sisi-buka');
+    tirai.hidden = false;
+    pembuka.setAttribute('aria-expanded', 'true');
+    var aktif = sisi.querySelector('.menu.aktif') || sisi.querySelector('.menu');
+    if (aktif) aktif.focus();
+  }
+  function tutupLaci() {
+    if (!html.classList.contains('sisi-buka')) return;
+    html.classList.remove('sisi-buka');
+    tirai.hidden = true;
+    pembuka.setAttribute('aria-expanded', 'false');
+    pembuka.focus();
+  }
+  pembuka.addEventListener('click', bukaLaci);
+  document.querySelectorAll('[data-tutup-laci]').forEach(function (el) {
+    el.addEventListener('click', tutupLaci);
+  });
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') tutupLaci();
+  });
+  layarSempit.addEventListener('change', function () {
+    html.classList.remove('sisi-buka');
+    tirai.hidden = true;
+  });
+
+  /* ---- ciutkan sidebar di layar lebar (diingat per komputer) ---- */
+  var ciutkan = document.querySelector('[data-ciutkan]');
+  function aturCiut(ciut, simpan) {
+    html.classList.toggle('sisi-ciut', ciut);
+    ciutkan.setAttribute('aria-pressed', ciut ? 'true' : 'false');
+    ciutkan.querySelector('.menu-teks').textContent = ciut ? 'Lebarkan menu' : 'Ciutkan menu';
+    if (simpan) {
+      try { localStorage.setItem('warkah-sisi', ciut ? 'ciut' : 'lebar'); } catch (e) {}
+    }
+  }
+  aturCiut(html.classList.contains('sisi-ciut'), false);
+  ciutkan.addEventListener('click', function () {
+    aturCiut(!html.classList.contains('sisi-ciut'), true);
+    tip.hidden = true;
+  });
+
+  /* ---- keterangan nama menu saat sidebar hanya berisi ikon ---- */
+  var tip = document.createElement('div');
+  tip.className = 'tip-menu';
+  tip.hidden = true;
+  tip.setAttribute('aria-hidden', 'true');
+  document.body.appendChild(tip);
+  function tampilTip(e) {
+    var el = e.currentTarget, r = el.getBoundingClientRect();
+    var ciut = html.classList.contains('sisi-ciut') && !layarSempit.matches;
+    var ikonSaja = el.classList.contains('menu-ikon');
+    if (!ciut && !ikonSaja) return;
+    tip.textContent = el.querySelector('.menu-teks').textContent;
+    tip.classList.toggle('di-atas', !ciut);
+    if (ciut) {
+      tip.style.left = (r.right + 10) + 'px';
+      tip.style.top = (r.top + r.height / 2) + 'px';
+    } else {
+      /* tombol ikon di kaki sidebar: keterangannya di atas tombol */
+      tip.style.left = (r.left + r.width / 2) + 'px';
+      tip.style.top = (r.top - 8) + 'px';
+    }
+    tip.hidden = false;
+  }
+  function sembunyiTip() { tip.hidden = true; }
+  sisi.querySelectorAll('.menu').forEach(function (el) {
+    el.addEventListener('mouseenter', tampilTip);
+    el.addEventListener('focus', tampilTip);
+    el.addEventListener('mouseleave', sembunyiTip);
+    el.addEventListener('blur', sembunyiTip);
+  });
+  sisi.querySelector('.sisi-menu').addEventListener('scroll', sembunyiTip);
+
+  /* ---- "Kembali ke katalog": kembali ke daftar yang tadi disaring ---- */
+  /* pencarian terakhir di tiap halaman daftar diingat selama tab ini terbuka,
+     jadi tetap benar walau di halaman detail sudah menyimpan beberapa kali */
+  try {
+    if (location.pathname === '/katalog' || location.pathname === '/residu') {
+      sessionStorage.setItem('warkah-cari' + location.pathname, location.search);
+    }
+    document.querySelectorAll('a[data-kembali]').forEach(function (a) {
+      var cari = sessionStorage.getItem('warkah-cari' + a.getAttribute('href'));
+      if (cari) a.href = a.getAttribute('href') + cari;
+    });
+  } catch (e) {}
+
+  /* ---- konfirmasi untuk tombol yang langsung mencatat sesuatu ---- */
+  document.addEventListener('submit', function (e) {
+    var tanya = e.target.getAttribute('data-konfirmasi');
+    if (tanya && !window.confirm(tanya)) e.preventDefault();
+  }, true);
+
+  /* ---- bilah simpan melayang untuk centang massal ---- */
+  var asli = document.getElementById('tombol-simpan');
+  var bilah = document.getElementById('simpan-melayang');
+  if (asli && bilah) {
+    var teks = bilah.querySelector('.simpan-melayang-teks');
+    var kelihatan = true;
+    function perbarui() {
+      var n = parseInt((document.getElementById('jml-ubah') || {}).textContent, 10) || 0;
+      teks.textContent = n + ' baris belum disimpan';
+      bilah.hidden = asli.disabled || n === 0 || kelihatan;
+    }
+    new MutationObserver(perbarui).observe(asli, { attributes: true, childList: true, subtree: true, characterData: true });
+    if ('IntersectionObserver' in window) {
+      new IntersectionObserver(function (m) {
+        kelihatan = m[0].isIntersecting;
+        perbarui();
+      }).observe(asli);
+    }
+    bilah.querySelector('button').addEventListener('click', function () {
+      var borang = asli.form;
+      if (borang.requestSubmit) borang.requestSubmit(asli); else asli.click();
+    });
+  }
+})();
+</script>
 
 </body>
 </html>

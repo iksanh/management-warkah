@@ -72,7 +72,8 @@
           </td>
           <td class="nowrap">
             {% if not r.tanggal_kembali %}
-              <form method="post" action="/pinjam/{{ r.id }}/kembali" style="display:inline">
+              <form method="post" action="/pinjam/{{ r.id }}/kembali" style="display:inline"
+                    data-konfirmasi="Catat warkah {{ r.nomor_hak }} sudah kembali hari ini ({{ hari_ini }})?">
                 <input type="hidden" name="tanggal_kembali" value="{{ hari_ini }}">
                 <input type="hidden" name="kembali_ke" value="/sirkulasi?tampil={{ tampil }}">
                 <button type="submit" class="hijau kecil">Kembalikan</button>
