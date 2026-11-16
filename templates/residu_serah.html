@@ -1,0 +1,391 @@
+{% extends "dasar.html" %}
+{% block judul %}Laporan Penyerahan Residu — Aplikasi Warkah{% endblock %}
+{% block isi %}
+
+<h1>Laporan Penyerahan Residu</h1>
+<p class="jelas">
+  Jumlah sertipikat residu yang sudah diserahkan ke pemohon pada periode tertentu.
+  Patokannya <em>tanggal serah</em> yang diisi petugas di dialog Ubah pada halaman
+  Daftar residu.
+</p>
+
+<div class="tab">
+  <a href="/residu">Daftar residu</a>
+  <a href="/residu/rekap">Rekap pengecekan blanko</a>
+  <a href="/residu/penyerahan" class="aktif">Laporan penyerahan</a>
+</div>
+
+<div class="kartu">
+  <form class="saring" method="get" action="/residu/penyerahan">
+    <div class="bidang-isian">
+      <label for="dari">Tanggal serah dari</label>
+      <input type="date" id="dari" name="dari" value="{{ dari }}">
+    </div>
+    <div class="bidang-isian">
+      <label for="sampai">Sampai</label>
+      <input type="date" id="sampai" name="sampai" value="{{ sampai }}">
+    </div>
+    <div class="bidang-isian">
+      <label for="kelompok">Kelompokkan per</label>
+      <select id="kelompok" name="kelompok">
+        {% for k, teks in [('hari', 'Hari'), ('minggu', 'Minggu'), ('bulan', 'Bulan')] %}
+          <option value="{{ k }}" {{ 'selected' if kelompok == k }}>{{ teks }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="bidang-isian">
+      <label for="petugas">Petugas</label>
+      <select id="petugas" name="petugas">
+        <option value="">Semua petugas</option>
+        {% for p in daftar_petugas %}
+          <option value="{{ p }}" {{ 'selected' if qp.get('petugas') == p }}>{{ p }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="bidang-isian">
+      <label for="tahun">Tahun anggaran</label>
+      <select id="tahun" name="tahun">
+        <option value="">Semua tahun</option>
+        {% for t in semua_tahun %}
+          <option value="{{ t.tahun }}" {{ 'selected' if qp.get('tahun') == t.tahun }}>{{ t.tahun }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="bidang-isian">
+      <label for="kecamatan">Kecamatan</label>
+      <select id="kecamatan" name="kecamatan">
+        <option value="">Semua</option>
+        {% for k in kecamatan %}
+          <option value="{{ k.nama_kecamatan }}" {{ 'selected' if kec_terpilih == k.nama_kecamatan }}>{{ k.nama_kecamatan }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="bidang-isian">
+      <label for="desa">Desa</label>
+      <select id="desa" name="desa">
+        <option value="">Semua</option>
+        {% for d in desa_tampil %}
+          <option value="{{ d.id }}" {{ 'selected' if qp.get('desa') == d.id | string }}>
+            {{ d.nama_desa }}{{ '' if kec_terpilih else ' (' ~ d.nama_kecamatan ~ ')' }}
+          </option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="bidang-isian">
+      <label>&nbsp;</label>
+      <div style="display:flex; gap:6px; flex-wrap:wrap">
+        <button type="submit">Terapkan</button>
+        <a href="/residu/penyerahan" class="tombol kedua">Reset</a>
+        <a class="tombol kedua" href="/residu/penyerahan.pdf{{ ('?' ~ kueri) if kueri }}"
+           target="_blank" rel="noopener" title="Laporan siap cetak untuk pimpinan">Unduh PDF</a>
+        <a class="tombol kedua" href="/residu/penyerahan.csv{{ ('?' ~ kueri) if kueri }}">Unduh CSV</a>
+      </div>
+    </div>
+    <div class="bidang-isian isian-lebar">
+      <label>Periode cepat</label>
+      <div style="display:flex; gap:6px; flex-wrap:wrap">
+        {% for p in periode_cepat %}
+          <a class="tombol kecil {{ '' if p.aktif else 'kedua' }}"
+             href="/residu/penyerahan?dari={{ p.dari }}&amp;sampai={{ p.sampai }}{{ sisa }}">{{ p.label }}</a>
+        {% endfor %}
+      </div>
+      <p class="kecil redup" style="margin:8px 0 0">
+        Periode terpakai: <strong>{{ teks_periode }}</strong>.
+        {% if batas_awal %}Tanggal serah yang tercatat berkisar
+          {{ batas_awal | tanggal }} s/d {{ batas_akhir | tanggal }}.{% endif %}
+      </p>
+    </div>
+  </form>
+</div>
+
+<div class="kisi k6">
+  <div class="angka-kotak hijau">
+    <div class="nilai">{{ (ringkas.diserahkan or 0) | angka }}</div>
+    <div class="label">Diserahkan pada periode</div>
+  </div>
+  <div class="angka-kotak">
+    <div class="nilai">{{ (ringkas.hari or 0) | angka }}</div>
+    <div class="label">Hari ada penyerahan</div>
+  </div>
+  <div class="angka-kotak">
+    <div class="nilai">{{ '%.1f' % (ringkas.diserahkan / ringkas.hari) if ringkas.hari else '—' }}</div>
+    <div class="label">Rata-rata per hari</div>
+  </div>
+  <div class="angka-kotak">
+    <div class="nilai">{{ (ringkas.desa or 0) | angka }}</div>
+    <div class="label">Desa</div>
+  </div>
+  <div class="angka-kotak ungu">
+    <div class="nilai">{{ lingkup.sudah | angka }}</div>
+    <div class="label">Sudah diserahkan (seluruhnya)</div>
+  </div>
+  <div class="angka-kotak oranye">
+    <div class="nilai">{{ (lingkup.jumlah - lingkup.sudah) | angka }}</div>
+    <div class="label">Belum diserahkan</div>
+  </div>
+</div>
+
+<p class="kecil redup" style="margin:10px 0 0">
+  Dua kotak terakhir menghitung seluruh residu aktif pada tahun/wilayah terpilih
+  ({{ lingkup.jumlah | angka }} baris), tanpa batas periode, sebagai pembanding progres.
+</p>
+
+{% if lingkup.tanpa_tanggal %}
+  <div class="pesan awas" style="margin-top:16px">
+    {{ lingkup.tanpa_tanggal | angka }} residu ditandai <strong>sudah diserahkan</strong>
+    tetapi tanggal serahnya kosong (umumnya hasil impor), sehingga tidak masuk periode
+    mana pun di laporan ini. Isi tanggal serahnya lewat dialog Ubah di
+    <a href="/residu?serah=sudah">Daftar residu</a> agar ikut terhitung.
+  </div>
+{% endif %}
+
+{# ------------------------------------------------------------ tabel periodik #}
+<div class="kartu rapat" style="margin-top:18px">
+  <div style="padding:16px 16px 0">
+    <h2>Penyerahan per {{ {'hari': 'hari', 'minggu': 'minggu', 'bulan': 'bulan'}[kelompok] }}</h2>
+    <p class="kecil redup" style="margin:4px 0 0">
+      Ganti pengelompokannya lewat isian <em>Kelompokkan per</em> di atas. Tombol
+      <em>Lihat</em> mempersempit laporan ke baris itu saja.
+    </p>
+  </div>
+  <div class="gulir">
+    <table>
+      <thead>
+        <tr>
+          <th class="nowrap">{{ label_kel }}</th>
+          <th class="angka">Diserahkan</th>
+          {% if kelompok != 'hari' %}<th class="angka">Hari</th>{% endif %}
+          <th class="angka">Desa</th>
+          <th>Petugas</th>
+          <th>Desa</th>
+          <th class="tengah">Lihat</th>
+        </tr>
+      </thead>
+      <tbody>
+      {% set nk = namespace(n=0) %}
+      {% for p in periodik %}
+        {% set nk.n = nk.n + p.diserahkan %}
+        <tr>
+          <td class="nowrap"><strong>{{ p.label }}</strong></td>
+          <td class="angka">{{ p.diserahkan | angka }}</td>
+          {% if kelompok != 'hari' %}<td class="angka">{{ p.hari | angka }}</td>{% endif %}
+          <td class="angka">{{ p.desa | angka }}</td>
+          <td class="kecil">{{ p.daftar_petugas | replace(',', ', ') }}</td>
+          <td class="kecil">{{ p.daftar_desa | replace(',', ', ') }}</td>
+          <td class="tengah">
+            {% if p.dari %}
+              <a class="tombol kecil kedua"
+                 href="/residu/penyerahan?dari={{ p.dari }}&amp;sampai={{ p.sampai }}{{ sisa }}">Lihat</a>
+            {% endif %}
+          </td>
+        </tr>
+      {% else %}
+        <tr><td colspan="7" class="kosong">Belum ada penyerahan bertanggal pada saringan ini.</td></tr>
+      {% endfor %}
+      {% if periodik %}
+        <tr class="total">
+          <td>TOTAL</td>
+          <td class="angka">{{ nk.n | angka }}</td>
+          {% if kelompok != 'hari' %}<td class="angka">{{ (ringkas.hari or 0) | angka }}</td>{% endif %}
+          <td class="angka">{{ (ringkas.desa or 0) | angka }}</td>
+          <td colspan="3"></td>
+        </tr>
+      {% endif %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{# ------------------------------------------------------ ringkasan per petugas #}
+<div class="kartu rapat" style="margin-top:18px">
+  <div style="padding:16px 16px 0">
+    <h2>Per petugas</h2>
+    <p class="kecil redup" style="margin:4px 0 0">
+      Petugas yang tercatat pada baris residu saat penyerahan disimpan.
+    </p>
+  </div>
+  <div class="gulir">
+    <table>
+      <thead>
+        <tr>
+          <th>Petugas</th>
+          <th class="angka">Diserahkan</th>
+          <th class="angka">Hari</th>
+          <th class="angka">Rata-rata/hari</th>
+          <th class="angka">Desa</th>
+          <th class="nowrap">Pertama</th>
+          <th class="nowrap">Terakhir</th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for p in per_petugas %}
+        <tr>
+          <td><strong>{{ p.nama }}</strong></td>
+          <td class="angka">{{ p.diserahkan | angka }}</td>
+          <td class="angka">{{ p.hari | angka }}</td>
+          <td class="angka">{{ '%.1f' % (p.diserahkan / p.hari) if p.hari else '—' }}</td>
+          <td class="angka">{{ p.desa | angka }}</td>
+          <td class="nowrap kecil">{{ p.tgl_awal | tanggal('—') }}</td>
+          <td class="nowrap kecil">{{ p.tgl_akhir | tanggal('—') }}</td>
+        </tr>
+      {% else %}
+        <tr><td colspan="7" class="kosong">Belum ada penyerahan pada saringan ini.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{# ------------------------------------------------- per desa dengan progres #}
+<div class="kartu rapat" style="margin-top:18px">
+  <div style="padding:16px 16px 0">
+    <h2>Per desa dan kecamatan</h2>
+    <p class="kecil redup" style="margin:4px 0 0">
+      Hanya desa yang ada penyerahannya pada periode ini. <em>Total residu</em>,
+      <em>Sudah diserahkan</em>, dan <em>Sisa</em> menghitung seluruh residu aktif di
+      desa itu (tanpa batas periode), jadi progresnya tetap terbaca walau periodenya
+      dipersempit.
+    </p>
+  </div>
+  <div class="gulir">
+    <table>
+      <thead>
+        <tr>
+          <th>Kecamatan</th>
+          <th>Desa</th>
+          <th class="angka">Diserahkan pada periode</th>
+          <th class="angka">Total residu</th>
+          <th class="angka">Sudah diserahkan</th>
+          <th class="angka">Sisa</th>
+          <th style="width:170px">Progres</th>
+          <th class="nowrap">Terakhir diserahkan</th>
+        </tr>
+      </thead>
+      <tbody>
+      {% set nd = namespace(n=0, total=0, sudah=0) %}
+      {% for d in per_desa %}
+        {% set nd.n = nd.n + d.diserahkan %}
+        {% set nd.total = nd.total + d.total %}
+        {% set nd.sudah = nd.sudah + d.sudah %}
+        <tr>
+          <td class="kecil redup">{{ d.kecamatan }}</td>
+          <td>
+            {% if d.wilayah_id %}
+              <a href="/residu?desa={{ d.wilayah_id }}&amp;serah=sudah"><strong>{{ d.desa }}</strong></a>
+            {% else %}<strong>{{ d.desa }}</strong>{% endif %}
+          </td>
+          <td class="angka">{{ d.diserahkan | angka }}</td>
+          <td class="angka">{{ d.total | angka }}</td>
+          <td class="angka">{{ d.sudah | angka }}</td>
+          <td class="angka">{{ (d.total - d.sudah) | angka }}</td>
+          <td>
+            {% set p = persen(d.sudah, d.total) %}
+            <div style="display:flex; align-items:center; gap:8px">
+              <div class="batang {{ 'sedikit' if p < 50 }}" style="flex:1"><span style="width:{{ '%.1f' % p }}%"></span></div>
+              <span class="kecil nowrap">{{ '%.1f' % p }}%</span>
+            </div>
+          </td>
+          <td class="nowrap kecil">{{ d.tgl_akhir | tanggal('—') }}</td>
+        </tr>
+      {% else %}
+        <tr><td colspan="8" class="kosong">Belum ada desa dengan penyerahan pada saringan ini.</td></tr>
+      {% endfor %}
+      {% if per_desa %}
+        <tr class="total">
+          <td colspan="2">TOTAL {{ per_desa | length }} DESA</td>
+          <td class="angka">{{ nd.n | angka }}</td>
+          <td class="angka">{{ nd.total | angka }}</td>
+          <td class="angka">{{ nd.sudah | angka }}</td>
+          <td class="angka">{{ (nd.total - nd.sudah) | angka }}</td>
+          <td>{{ '%.1f' % persen(nd.sudah, nd.total) }}%</td>
+          <td></td>
+        </tr>
+      {% endif %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{# ------------------------------------------------- daftar sertipikat diserahkan #}
+<div class="kartu rapat" style="margin-top:18px">
+  <div style="padding:16px 16px 0">
+    <h2>Daftar sertipikat yang diserahkan</h2>
+    <p class="kecil redup" style="margin:4px 0 0">
+      Terbaru di atas.
+      {% if (ringkas.diserahkan or 0) > batas_rincian %}
+        Layar hanya menampilkan {{ batas_rincian | angka }} baris pertama dari
+        {{ ringkas.diserahkan | angka }}; unduh CSV untuk daftar lengkapnya.
+      {% else %}
+        Isi tabel ini sama dengan yang terunduh lewat <em>Unduh CSV</em>.
+      {% endif %}
+    </p>
+  </div>
+  <div class="gulir">
+    <table>
+      <thead>
+        <tr>
+          <th class="nowrap">Tanggal serah</th>
+          <th>Tahun</th>
+          <th>No. berkas</th>
+          <th>No. hak</th>
+          <th>Pemegang hak</th>
+          <th>Penerima</th>
+          <th>Kecamatan</th>
+          <th>Desa</th>
+          <th>Petugas</th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for r in rincian %}
+        <tr>
+          <td class="nowrap kecil">{{ r.tanggal | tanggal }}</td>
+          <td class="kecil">{{ r.tahun or '—' }}</td>
+          <td class="kecil">{{ r.nomor_berkas or '—' }}</td>
+          <td class="nowrap"><strong>{{ r.nomor_hak or '—' }}</strong></td>
+          <td>{{ r.nama_pemegang or '—' }}</td>
+          <td>{{ r.penerima or '—' }}</td>
+          <td class="kecil redup">{{ r.kecamatan }}</td>
+          <td>{{ r.desa }}</td>
+          <td class="kecil">{{ r.nama }}</td>
+        </tr>
+      {% else %}
+        <tr><td colspan="9" class="kosong">Belum ada sertipikat yang diserahkan pada saringan ini.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{# daftar desa lengkap, dipakai untuk menyusun ulang pilihan saat kecamatan diganti #}
+<script id="data-desa" type="application/json">{{ desa | tojson }}</script>
+<script>
+(function () {
+  var semuaDesa = JSON.parse(document.getElementById('data-desa').textContent);
+  var pilihKec = document.getElementById('kecamatan');
+  var pilihDesa = document.getElementById('desa');
+
+  pilihKec.addEventListener('change', function () {
+    var kec = pilihKec.value;
+    var sebelumnya = pilihDesa.value;
+    var cocok = semuaDesa.filter(function (d) { return !kec || d.nama_kecamatan === kec; });
+
+    pilihDesa.innerHTML = '';
+    var semua = document.createElement('option');
+    semua.value = '';
+    semua.textContent = 'Semua';
+    pilihDesa.appendChild(semua);
+
+    cocok.forEach(function (d) {
+      var o = document.createElement('option');
+      o.value = String(d.id);
+      o.textContent = kec ? d.nama_desa : d.nama_desa + ' (' + d.nama_kecamatan + ')';
+      pilihDesa.appendChild(o);
+    });
+
+    var masihAda = cocok.some(function (d) { return String(d.id) === sebelumnya; });
+    pilihDesa.value = masihAda ? sebelumnya : '';
+  });
+})();
+</script>
+
+{% endblock %}

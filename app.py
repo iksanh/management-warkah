@@ -2136,6 +2136,309 @@ async def rekap_blanko_csv(request: Request):
                              'attachment; filename="%s"' % berkas})
 
 
+# ------------------------------------------------ laporan penyerahan residu
+# Berapa sertipikat residu yang sudah diserahkan ke pemohon dalam satu periode.
+# Patokannya kolom tanggal_serah yang diisi petugas di dialog Ubah residu.
+# Baris yang ditandai sudah diserahkan tetapi tanggalnya kosong (umumnya hasil
+# impor) tidak bisa masuk periode mana pun, jadi dihitung terpisah.
+TGL_SERAH = "NULLIF(TRIM(COALESCE(r.tanggal_serah, '')), '')"
+PETUGAS_SERAH = "COALESCE(NULLIF(TRIM(r.petugas), ''), '(tanpa petugas)')"
+# kelompok waktu tabel periodik: nilai saringan -> (ekspresi SQL, label kolom)
+KELOMPOK_SERAH = {
+    "hari": (TGL_SERAH, "Tanggal"),
+    # Senin pada minggu tanggal itu
+    "minggu": ("date(" + TGL_SERAH + ", '-6 days', 'weekday 1')", "Minggu mulai"),
+    "bulan": ("substr(" + TGL_SERAH + ", 1, 7)", "Bulan"),
+}
+BATAS_RINCIAN_SERAH = 500
+
+
+def pilihan_periode(hari):
+    """Tombol periode cepat: [(label, dari, sampai), ...]."""
+    awal_bulan = hari.replace(day=1)
+    akhir_bulan_lalu = awal_bulan - timedelta(days=1)
+    senin = hari - timedelta(days=hari.weekday())
+    return [
+        ("Hari ini", hari, hari),
+        ("Minggu ini", senin, hari),
+        ("Bulan ini", awal_bulan, hari),
+        ("Bulan lalu", akhir_bulan_lalu.replace(day=1), akhir_bulan_lalu),
+        ("Tahun ini", hari.replace(month=1, day=1), hari),
+    ]
+
+
+def rentang_kelompok(kelompok, kunci):
+    """Label dan rentang tanggal satu baris tabel periodik.
+
+    Rentangnya dipakai tautan "lihat" supaya satu klik mempersempit laporan
+    ke hari/minggu/bulan itu saja.
+    """
+    try:
+        if kelompok == "bulan":
+            awal = date.fromisoformat(kunci + "-01")
+            akhir = (awal.replace(day=28) + timedelta(days=4))
+            akhir -= timedelta(days=akhir.day)
+            return {"label": "%s %d" % (laporan.BULAN[awal.month], awal.year),
+                    "dari": awal.isoformat(), "sampai": akhir.isoformat()}
+        awal = date.fromisoformat(kunci)
+    except (TypeError, ValueError):
+        return {"label": kunci or "-", "dari": "", "sampai": ""}
+    if kelompok == "minggu":
+        akhir = awal + timedelta(days=6)
+        return {"label": "%s – %s" % (laporan.tanggal_id(awal.isoformat()),
+                                      laporan.tanggal_id(akhir.isoformat())),
+                "dari": awal.isoformat(), "sampai": akhir.isoformat()}
+    return {"label": laporan.tanggal_id(kunci), "dari": kunci, "sampai": kunci}
+
+
+def saring_serah(qp):
+    """Saringan laporan penyerahan.
+
+    ``umum`` hanya tahun/wilayah/petugas dan berlaku untuk seluruh residu aktif
+    (penyebut progres); ``serah`` menambahkan syarat sudah diserahkan dan
+    batas tanggal serahnya.
+    """
+    def tgl(kunci):
+        try:
+            return date.fromisoformat((qp.get(kunci) or "").strip()).isoformat()
+        except ValueError:
+            return None
+
+    dari, sampai = tgl("dari"), tgl("sampai")
+    if dari and sampai and dari > sampai:          # terbalik, tukar saja
+        dari, sampai = sampai, dari
+
+    # residu aktif saja, sama dengan angka bawaan halaman Daftar residu
+    umum, par_umum = ["r.tidak_ditemukan = 0"], []
+    for kolom, kunci in (("r.tahun", "tahun"), ("w.nama_kecamatan", "kecamatan"),
+                         ("r.wilayah_id", "desa")):
+        nilai = (qp.get(kunci) or "").strip()
+        if nilai:
+            umum.append("%s = ?" % kolom)
+            par_umum.append(nilai)
+
+    serah, par_serah = ["r.sudah_diserahkan = 1", TGL_SERAH + " IS NOT NULL"], []
+    if dari:
+        serah.append(TGL_SERAH + " >= ?")
+        par_serah.append(dari)
+    if sampai:
+        serah.append(TGL_SERAH + " <= ?")
+        par_serah.append(sampai)
+    nama = (qp.get("petugas") or "").strip()
+    if nama:
+        serah.append(PETUGAS_SERAH + " = ?")
+        par_serah.append(nama)
+
+    kelompok = (qp.get("kelompok") or "").strip()
+    if kelompok not in KELOMPOK_SERAH:
+        kelompok = "hari"
+
+    return {
+        "dari": dari or "", "sampai": sampai or "", "petugas": nama,
+        "kelompok": kelompok,
+        "tahun": (qp.get("tahun") or "").strip(),
+        "kecamatan": (qp.get("kecamatan") or "").strip(),
+        "desa": (qp.get("desa") or "").strip(),
+        "where_umum": " WHERE " + " AND ".join(umum), "par_umum": par_umum,
+        "where_serah": " WHERE " + " AND ".join(umum + serah),
+        "par_serah": par_umum + par_serah,
+    }
+
+
+def rincian_serah(kon, s, batas=None):
+    """Daftar sertipikat yang diserahkan pada periode, terbaru di atas.
+
+    Dipakai halaman laporan dan unduhan CSV supaya isinya selalu sama.
+    """
+    return kon.execute(
+        "SELECT r.id, " + TGL_SERAH + " tanggal, r.tahun, r.nomor_berkas, "
+        "r.nomor_hak, r.nama_pemegang, r.penerima, r.no_seri_blanko, r.luas, "
+        + PETUGAS_SERAH + " nama, " + KEC_BLANKO + " kecamatan, "
+        + DESA_BLANKO + " desa, r.wilayah_id"
+        + DARI_BLANKO + s["where_serah"]
+        + " ORDER BY tanggal DESC, kecamatan, desa, r.nomor_hak"
+        + (" LIMIT %d" % batas if batas else ""), s["par_serah"]).fetchall()
+
+
+def hitung_serah(kon, s):
+    """Seluruh angka laporan penyerahan untuk saringan ``s``.
+
+    Dipakai halaman laporan dan PDF-nya supaya angkanya selalu sama.
+    """
+    where, par = s["where_serah"], s["par_serah"]
+    ekspresi_kel, label_kel = KELOMPOK_SERAH[s["kelompok"]]
+
+    ringkas = kon.execute(
+        "SELECT COUNT(*) diserahkan, "
+        "COUNT(DISTINCT " + TGL_SERAH + ") hari, "
+        "COUNT(DISTINCT " + PETUGAS_SERAH + ") petugas, "
+        "COUNT(DISTINCT " + DESA_BLANKO + ") desa, "
+        "MIN(" + TGL_SERAH + ") tgl_awal, MAX(" + TGL_SERAH + ") tgl_akhir"
+        + DARI_BLANKO + where, par).fetchone()
+
+    # posisi seluruh residu di tahun/wilayah terpilih, tanpa batas periode
+    lingkup = kon.execute(
+        "SELECT COUNT(*) jumlah, "
+        "COALESCE(SUM(r.sudah_diserahkan = 1), 0) sudah, "
+        "COALESCE(SUM(r.sudah_diserahkan = 1 AND " + TGL_SERAH + " IS NULL), 0) tanpa_tanggal"
+        + DARI_BLANKO + s["where_umum"], s["par_umum"]).fetchone()
+
+    periodik = kon.execute(
+        "SELECT " + ekspresi_kel + " grup_periode, COUNT(*) diserahkan, "
+        "COUNT(DISTINCT " + TGL_SERAH + ") hari, "
+        "COUNT(DISTINCT " + DESA_BLANKO + ") desa, "
+        "GROUP_CONCAT(DISTINCT " + PETUGAS_SERAH + ") daftar_petugas, "
+        "GROUP_CONCAT(DISTINCT " + DESA_BLANKO + ") daftar_desa"
+        + DARI_BLANKO + where + " GROUP BY grup_periode ORDER BY grup_periode DESC", par).fetchall()
+    periodik = [dict(x, **rentang_kelompok(s["kelompok"], x["grup_periode"])) for x in periodik]
+
+    per_petugas = kon.execute(
+        "SELECT " + PETUGAS_SERAH + " nama, COUNT(*) diserahkan, "
+        "COUNT(DISTINCT " + TGL_SERAH + ") hari, "
+        "COUNT(DISTINCT " + DESA_BLANKO + ") desa, "
+        "MIN(" + TGL_SERAH + ") tgl_awal, MAX(" + TGL_SERAH + ") tgl_akhir"
+        + DARI_BLANKO + where + " GROUP BY nama ORDER BY diserahkan DESC, nama",
+        par).fetchall()
+
+    per_desa = [dict(x) for x in kon.execute(
+        "SELECT " + KEC_BLANKO + " kecamatan, " + DESA_BLANKO + " desa, "
+        "r.wilayah_id, COUNT(*) diserahkan, MAX(" + TGL_SERAH + ") tgl_akhir"
+        + DARI_BLANKO + where + " GROUP BY kecamatan, desa ORDER BY kecamatan, desa",
+        par)]
+    # penyebut progres tidak ikut disaring tanggal/petugas: yang ditanya
+    # "berapa isi desa ini dan berapa yang sudah diserahkan sampai sekarang"
+    seluruh = {}
+    for t in kon.execute(
+            "SELECT " + KEC_BLANKO + " kecamatan, " + DESA_BLANKO + " desa, "
+            "COUNT(*) jumlah, COALESCE(SUM(r.sudah_diserahkan = 1), 0) sudah"
+            + DARI_BLANKO + s["where_umum"] + " GROUP BY kecamatan, desa",
+            s["par_umum"]):
+        seluruh[(t["kecamatan"], t["desa"])] = t
+    for d in per_desa:
+        t = seluruh.get((d["kecamatan"], d["desa"]))
+        d["total"] = t["jumlah"] if t else d["diserahkan"]
+        d["sudah"] = t["sudah"] if t else d["diserahkan"]
+
+    return {"ringkas": ringkas, "lingkup": lingkup, "periodik": periodik,
+            "label_kel": label_kel, "per_petugas": per_petugas, "per_desa": per_desa}
+
+
+async def laporan_serah(request: Request):
+    """Laporan jumlah residu yang diserahkan per periode."""
+    qp = request.query_params
+    s = saring_serah(qp)
+
+    kon = db.sambung()
+    h = hitung_serah(kon, s)
+    rincian = rincian_serah(kon, s, BATAS_RINCIAN_SERAH)
+
+    batas = kon.execute(
+        "SELECT MIN(" + TGL_SERAH + ") awal, MAX(" + TGL_SERAH + ") akhir "
+        "FROM residu r").fetchone()
+    daftar_petugas = [x[0] for x in kon.execute(
+        "SELECT DISTINCT " + PETUGAS_SERAH + " FROM residu r "
+        "WHERE r.sudah_diserahkan = 1 AND " + TGL_SERAH + " IS NOT NULL ORDER BY 1")]
+    semua_tahun = kon.execute(
+        "SELECT DISTINCT tahun FROM residu WHERE tahun IS NOT NULL "
+        "ORDER BY tahun").fetchall()
+    kecamatan = kon.execute(
+        "SELECT DISTINCT w.nama_kecamatan FROM residu r JOIN wilayah w "
+        "ON w.id = r.wilayah_id ORDER BY w.nama_kecamatan").fetchall()
+    desa = [dict(x) for x in kon.execute(
+        "SELECT DISTINCT w.id, w.nama_desa, w.nama_kecamatan FROM residu r "
+        "JOIN wilayah w ON w.id = r.wilayah_id "
+        "ORDER BY w.nama_kecamatan, w.nama_desa")]
+    kon.close()
+
+    kec_terpilih = (qp.get("kecamatan") or "").strip()
+    desa_tampil = [d for d in desa
+                   if not kec_terpilih or d["nama_kecamatan"] == kec_terpilih]
+    kueri = "&".join("%s=%s" % (k, quote(v, safe=""))
+                     for k, v in qp.multi_items() if v)
+    # tombol periode cepat tetap membawa saringan lain yang sedang aktif
+    sisa = "".join("&%s=%s" % (k, quote(v, safe="")) for k, v in qp.multi_items()
+                   if v and k not in ("dari", "sampai"))
+    periode_cepat = [
+        {"label": label, "dari": a.isoformat(), "sampai": b.isoformat(),
+         "aktif": s["dari"] == a.isoformat() and s["sampai"] == b.isoformat()}
+        for label, a, b in pilihan_periode(date.today())]
+
+    return templates.TemplateResponse(request, "residu_serah.html", konteks(
+        request, **h, kelompok=s["kelompok"], rincian=rincian, batas_rincian=BATAS_RINCIAN_SERAH,
+        semua_tahun=semua_tahun, kecamatan=kecamatan, desa=desa,
+        desa_tampil=desa_tampil, kec_terpilih=kec_terpilih,
+        daftar_petugas=daftar_petugas, qp=qp, kueri=kueri, sisa=sisa,
+        periode_cepat=periode_cepat, dari=s["dari"], sampai=s["sampai"],
+        batas_awal=batas["awal"] or "", batas_akhir=batas["akhir"] or "",
+        teks_periode=laporan.teks_periode(s["dari"], s["sampai"])))
+
+
+def saringan_serah_terpasang(kon, s):
+    """Pasangan (label, nilai) saringan laporan penyerahan untuk kepala PDF.
+
+    Pasangan pertama selalu periodenya.
+    """
+    hasil = [("Periode tanggal serah", laporan.teks_periode(s["dari"], s["sampai"]))]
+    for kunci, label in (("tahun", "Tahun anggaran"), ("kecamatan", "Kecamatan"),
+                         ("desa", "Desa")):
+        nilai = s[kunci]
+        if not nilai:
+            continue
+        if kunci == "desa" and nilai.isdigit():
+            w = kon.execute("SELECT nama_desa, nama_kecamatan FROM wilayah WHERE id = ?",
+                            (int(nilai),)).fetchone()
+            nilai = "%s (%s)" % (w["nama_desa"], w["nama_kecamatan"]) if w else nilai
+        hasil.append((label, nilai))
+    if s["petugas"]:
+        hasil.append(("Petugas", s["petugas"]))
+    return hasil
+
+
+async def laporan_serah_pdf(request: Request):
+    """Unduh laporan penyerahan residu sebagai PDF, sesuai saringan halaman."""
+    s = saring_serah(request.query_params)
+    kon = db.sambung()
+    h = hitung_serah(kon, s)
+    rincian = [dict(r) for r in rincian_serah(kon, s)]
+    saringan = saringan_serah_terpasang(kon, s)
+    kon.close()
+
+    isi = laporan.buat_pdf_serah(h, rincian, saringan, s["kelompok"],
+                                 dicetak_oleh=petugas_aktif(request),
+                                 dicetak_pada=sekarang())
+    berkas = "penyerahan_residu_%s_sd_%s.pdf" % (s["dari"] or "awal",
+                                                 s["sampai"] or hari_ini())
+    return Response(isi, media_type="application/pdf",
+                    headers={"Content-Disposition": 'inline; filename="%s"' % berkas})
+
+
+JUDUL_SERAH_CSV = ["Tanggal_Serah", "Tahun", "Nomor_Berkas", "Nomor_Hak",
+                   "Nama_Pemegang", "Penerima", "No_Seri_Blanko", "Luas",
+                   "Kecamatan", "Desa", "Petugas"]
+
+
+async def laporan_serah_csv(request: Request):
+    """Unduh daftar residu yang diserahkan pada periode terpilih."""
+    s = saring_serah(request.query_params)
+    kon = db.sambung()
+    baris = rincian_serah(kon, s)
+    kon.close()
+
+    keluar = [";".join(JUDUL_SERAH_CSV)]
+    for r in baris:
+        keluar.append(";".join(sel_csv(v) for v in (
+            r["tanggal"], r["tahun"], r["nomor_berkas"], r["nomor_hak"],
+            r["nama_pemegang"], r["penerima"], r["no_seri_blanko"], r["luas"],
+            r["kecamatan"], r["desa"], r["nama"])))
+
+    isi_csv = "﻿" + "\r\n".join(keluar) + "\r\n"
+    berkas = "penyerahan_residu_%s_sd_%s.csv" % (s["dari"] or "awal",
+                                                 s["sampai"] or hari_ini())
+    return Response(isi_csv.encode("utf-8"), media_type="text/csv; charset=utf-8",
+                    headers={"Content-Disposition":
+                             'attachment; filename="%s"' % berkas})
+
+
 JUDUL_RESIDU_CSV = ["Tahun", "Nomor_Berkas", "Nomor_Hak", "Nomor_Hak_Asli",
                     "Kecamatan", "Desa", "Nama_Pemegang", "No_Seri_Blanko",
                     "Luas", "Sudah_Diserahkan", "Tipologi", "Keterangan",
@@ -2864,6 +3167,9 @@ rute = [
     Route("/residu.pdf", residu_pdf),
     Route("/residu/rekap", rekap_blanko),
     Route("/residu/rekap.csv", rekap_blanko_csv),
+    Route("/residu/penyerahan", laporan_serah),
+    Route("/residu/penyerahan.csv", laporan_serah_csv),
+    Route("/residu/penyerahan.pdf", laporan_serah_pdf),
     Route("/residu/centang", centang_blanko, methods=["POST"]),
     Route("/residu/{residu_id:int}/simpan", simpan_residu, methods=["POST"]),
     Route("/residu/tipologi", simpan_tipologi, methods=["POST"]),

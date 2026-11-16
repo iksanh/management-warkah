@@ -10,7 +10,7 @@ from reportlab.lib.enums import TA_CENTER, TA_RIGHT
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import mm
-from reportlab.platypus import (KeepTogether, LongTable, PageBreak, Paragraph,
+from reportlab.platypus import (CondPageBreak, KeepTogether, LongTable, PageBreak, Paragraph,
                                 SimpleDocTemplate, Spacer, Table, TableStyle)
 
 KANTOR = "Kantor Pertanahan Kabupaten Bone Bolango"
@@ -513,3 +513,180 @@ def buat_pdf_residu(data, saringan=(), dicetak_oleh=None, dicetak_pada=""):
 def _kanvas(kaki):
     """Kelas kanvas bernomor yang membawa teks kaki laporan ini."""
     return type("Kanvas", (_KanvasBernomor,), {"keterangan_kaki": kaki})
+
+
+# ---------------------------------------------- laporan penyerahan residu
+NAMA_KELOMPOK = {"hari": "hari", "minggu": "minggu", "bulan": "bulan"}
+
+
+def _tabel_lebar(baris, lebar, rata_kanan=(), ada_total=True):
+    """Tabel landscape: kepala abu, garis tipis, baris total (opsional) tebal."""
+    t = LongTable(baris, colWidths=lebar, repeatRows=1, hAlign="LEFT")
+    gaya = [
+        ("FONT", (0, 0), (-1, -1), "Helvetica", 8),
+        ("BACKGROUND", (0, 0), (-1, 0), ABU),
+        ("GRID", (0, 0), (-1, -1), 0.4, ABU),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("VALIGN", (0, 0), (-1, 0), "MIDDLE"),
+        ("TOPPADDING", (0, 0), (-1, -1), 3),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+        ("ROWBACKGROUNDS", (0, 1), (-1, -1),
+         [colors.white, colors.HexColor("#f9fafb")]),
+    ]
+    if ada_total:
+        gaya += [("FONT", (0, -1), (-1, -1), "Helvetica-Bold", 8),
+                 ("BACKGROUND", (0, -1), (-1, -1), ABU)]
+    for k in rata_kanan:
+        gaya.append(("ALIGN", (k, 1), (k, -1), "RIGHT"))
+    t.setStyle(TableStyle(gaya))
+    return t
+
+
+def _kepala(*kolom, kanan=()):
+    """Baris kepala tabel; kolom bernomor di ``kanan`` rata kanan."""
+    return [Paragraph(k, KEPALA_KANAN if i in kanan else KEPALA)
+            for i, k in enumerate(kolom)]
+
+
+def _persen(a, b):
+    return ("%.1f%%" % (a / b * 100 if b else 0)).replace(".", ",")
+
+
+def _rerata(a, b):
+    return ("%.1f" % (a / b)).replace(".", ",") if b else "-"
+
+
+def buat_pdf_serah(h, rincian, saringan=(), kelompok="hari",
+                   dicetak_oleh=None, dicetak_pada=""):
+    """Kembalikan isi PDF (bytes) laporan penyerahan residu.
+
+    ``h`` adalah hasil app.hitung_serah (ringkas, lingkup, periodik,
+    per_petugas, per_desa, label_kel); ``rincian`` daftar sertipikat yang
+    diserahkan; ``saringan`` pasangan (label, nilai), yang pertama periodenya.
+    """
+    penampung = BytesIO()
+    dok = SimpleDocTemplate(
+        penampung, pagesize=A4_LANSKAP,
+        leftMargin=12 * mm, rightMargin=12 * mm,
+        topMargin=12 * mm, bottomMargin=16 * mm,
+        title="Laporan Penyerahan Residu PTSL", author=KANTOR)
+    kaki = "Dicetak %s%s - Aplikasi Warkah" % (
+        dicetak_pada, " oleh %s" % dicetak_oleh if dicetak_oleh else "")
+
+    rk, lk = h["ringkas"], h["lingkup"]
+    n = rk["diserahkan"] or 0
+    periode = saringan[0][1] if saringan else "Seluruh periode"
+    isi = [
+        Paragraph("LAPORAN PENYERAHAN SERTIPIKAT RESIDU PTSL", JUDUL),
+        Paragraph(KANTOR, SUBJUDUL),
+        Paragraph("Periode: %s" % _esc(periode), SUBJUDUL),
+        Spacer(1, 8),
+    ]
+
+    ket = list(saringan[1:]) + [
+        ("Diserahkan pada periode", "%s sertipikat" % angka(n)),
+        ("Hari ada penyerahan", "%s hari (rata-rata %s per hari)" % (
+            angka(rk["hari"]), _rerata(n, rk["hari"]))),
+        ("Tanggal serah tercatat", "%s s/d %s" % (
+            tanggal_id(rk["tgl_awal"]), tanggal_id(rk["tgl_akhir"]))
+         if rk["tgl_awal"] else "-"),
+        ("Posisi seluruh residu", "%s dari %s sudah diserahkan (%s), sisa %s" % (
+            angka(lk["sudah"]), angka(lk["jumlah"]), _persen(lk["sudah"], lk["jumlah"]),
+            angka(lk["jumlah"] - lk["sudah"]))),
+    ]
+    t = Table([[Paragraph(_esc(a), ISI), Paragraph(": " + _esc(b), ISI)] for a, b in ket],
+              colWidths=[48 * mm, 200 * mm], hAlign="LEFT")
+    t.setStyle(TableStyle([
+        ("TOPPADDING", (0, 0), (-1, -1), 1), ("BOTTOMPADDING", (0, 0), (-1, -1), 1),
+        ("LINEBELOW", (0, -1), (-1, -1), 0.6, ABU),
+    ]))
+    isi.append(t)
+    if lk["tanpa_tanggal"]:
+        isi.append(Paragraph(
+            "Catatan: %s residu ditandai sudah diserahkan tetapi tanggal serahnya "
+            "kosong, sehingga tidak masuk periode mana pun dalam laporan ini; "
+            "angkanya tetap terhitung pada posisi seluruh residu."
+            % angka(lk["tanpa_tanggal"]), KECIL))
+
+    if not n:
+        isi.append(Spacer(1, 12))
+        isi.append(Paragraph("Tidak ada penyerahan bertanggal pada saringan ini.", ISI))
+        dok.build(isi, canvasmaker=_kanvas(kaki))
+        return penampung.getvalue()
+
+    # ---- A. per periode (hari/minggu/bulan sesuai pilihan di halaman)
+    per_hari = kelompok == "hari"
+    isi.append(Paragraph("A. Penyerahan per %s" % NAMA_KELOMPOK.get(kelompok, "hari"),
+                         BAGIAN))
+    kolom = [h["label_kel"], "Diserahkan"] + ([] if per_hari else ["Hari"]) + [
+        "Desa", "Petugas", "Desa yang diserahkan"]
+    kanan = (1, 2) if per_hari else (1, 2, 3)
+    baris = [_kepala(*kolom, kanan=kanan)]
+    for p in h["periodik"]:
+        baris.append([_p(p["label"], SEL), angka(p["diserahkan"])]
+                     + ([] if per_hari else [angka(p["hari"])])
+                     + [angka(p["desa"]),
+                        _p((p["daftar_petugas"] or "").replace(",", ", ")),
+                        _p((p["daftar_desa"] or "").replace(",", ", "))])
+    baris.append(["JUMLAH", angka(n)] + ([] if per_hari else [angka(rk["hari"])])
+                 + [angka(rk["desa"]), "", ""])
+    lebar = [50, 22, 16, 55, 130] if per_hari else [68, 22, 14, 16, 46, 107]
+    isi.append(_tabel_lebar(baris, [w * mm for w in lebar], rata_kanan=kanan))
+
+    # ---- B. per petugas; judul bagian tidak boleh tertinggal sendirian di
+    # dasar halaman, jadi pindah halaman bila sisa ruangnya tinggal sedikit
+    isi.append(CondPageBreak(40 * mm))
+    isi.append(Paragraph("B. Penyerahan per petugas", BAGIAN))
+    baris = [_kepala("Petugas", "Diserahkan", "Porsi", "Hari", "Rata-rata/hari",
+                     "Desa", "Pertama", "Terakhir", kanan=(1, 2, 3, 4, 5))]
+    for p in h["per_petugas"]:
+        baris.append([_p(p["nama"], SEL), angka(p["diserahkan"]),
+                      _persen(p["diserahkan"], n), angka(p["hari"]),
+                      _rerata(p["diserahkan"], p["hari"]), angka(p["desa"]),
+                      tanggal_id(p["tgl_awal"]), tanggal_id(p["tgl_akhir"])])
+    baris.append(["JUMLAH", angka(n), "100,0%", angka(rk["hari"]),
+                  _rerata(n, rk["hari"]), angka(rk["desa"]), "", ""])
+    isi.append(_tabel_lebar(baris, [w * mm for w in (60, 24, 20, 16, 26, 16, 34, 34)],
+                            rata_kanan=(1, 2, 3, 4, 5)))
+
+    # ---- C. per desa, dengan progres seluruh residu desa itu
+    isi.append(CondPageBreak(40 * mm))
+    isi.append(Paragraph("C. Penyerahan per desa", BAGIAN))
+    isi.append(Paragraph(
+        "Total residu, sudah diserahkan, dan sisa menghitung seluruh residu aktif "
+        "di desa tersebut tanpa batas periode.", KECIL))
+    isi.append(Spacer(1, 3))
+    baris = [_kepala("Kecamatan", "Desa", "Diserahkan pada periode", "Total residu",
+                     "Sudah diserahkan", "Sisa", "Progres", "Terakhir diserahkan",
+                     kanan=(2, 3, 4, 5, 6))]
+    jml_n = jml_total = jml_sudah = 0
+    for d in h["per_desa"]:
+        jml_n += d["diserahkan"]
+        jml_total += d["total"]
+        jml_sudah += d["sudah"]
+        baris.append([_p(d["kecamatan"], SEL), _p(d["desa"], SEL),
+                      angka(d["diserahkan"]), angka(d["total"]), angka(d["sudah"]),
+                      angka(d["total"] - d["sudah"]), _persen(d["sudah"], d["total"]),
+                      tanggal_id(d["tgl_akhir"])])
+    baris.append(["JUMLAH %d DESA" % len(h["per_desa"]), "", angka(jml_n),
+                  angka(jml_total), angka(jml_sudah), angka(jml_total - jml_sudah),
+                  _persen(jml_sudah, jml_total), ""])
+    isi.append(_tabel_lebar(baris, [w * mm for w in (40, 46, 30, 24, 28, 20, 22, 36)],
+                            rata_kanan=(2, 3, 4, 5, 6)))
+
+    # ---- D. daftar sertipikat, mulai di halaman baru
+    isi.append(PageBreak())
+    isi.append(Paragraph("D. Daftar sertipikat yang diserahkan (%s)" % angka(n), BAGIAN))
+    baris = [_kepala("No", "Tanggal Serah", "Tahun", "Nomor Berkas", "Nomor Hak",
+                     "Pemegang Hak", "Penerima", "Desa", "Kecamatan", "Petugas")]
+    for no, r in enumerate(rincian, 1):
+        # kolom pendek cukup teks biasa supaya ribuan baris tetap cepat disusun
+        baris.append([str(no), tanggal_pendek(r["tanggal"]), r["tahun"] or "-",
+                      r["nomor_berkas"] or "-", _p(r["nomor_hak"]),
+                      _p(r["nama_pemegang"]), _p(r["penerima"]), _p(r["desa"]),
+                      _p(r["kecamatan"]), _p(r["nama"])])
+    isi.append(_tabel_lebar(baris, [w * mm for w in (9, 20, 13, 19, 32, 42, 42, 30, 28, 37)],
+                            ada_total=False))
+
+    dok.build(isi, canvasmaker=_kanvas(kaki))
+    return penampung.getvalue()
