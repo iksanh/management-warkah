@@ -1802,6 +1802,25 @@ def ringkas_baris(kon, rid, kembali_ke=""):
     }
 
 
+def cek_tanggal_serah(serah, teks):
+    """Tanggal serah yang sah (YYYY-MM-DD), atau ValueError.
+
+    Wajib diisi bila sertipikat dicentang sudah diserahkan, karena laporan
+    penyerahan per periode berpatokan pada tanggal ini; tanpa tanggal,
+    penyerahannya tidak pernah terhitung di periode mana pun.
+    """
+    teks = (teks or "").strip()
+    if not teks:
+        if serah:
+            raise ValueError("Tanggal serah wajib diisi bila sertipikat "
+                             "sudah diserahkan.")
+        return None
+    try:
+        return date.fromisoformat(teks).isoformat()
+    except ValueError:
+        raise ValueError("Tanggal serah tidak valid: %s" % teks)
+
+
 async def simpan_residu(request: Request):
     """Simpan kolom kerja satu baris residu; kolom hasil impor tidak disentuh."""
     rid = int(request.path_params["residu_id"])
@@ -1825,6 +1844,8 @@ async def simpan_residu(request: Request):
                                 status_code=404)
         return Response("Data residu tidak ditemukan", status_code=404)
     try:
+        nilai[KOLOM_KERJA.index("tanggal_serah")] = cek_tanggal_serah(
+            serah, nilai[KOLOM_KERJA.index("tanggal_serah")])
         lengkapi = isian_kosong(kon, rid, form)
         pokok, pokok_lama = ubah_pokok(kon, rid, form)
     except ValueError as galat:

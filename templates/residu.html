@@ -944,8 +944,16 @@ document.querySelectorAll('.modal-rinci').forEach(function (dialog) {
       tidakAda.closest('.tanda-tidak-ditemukan').classList.toggle('aktif', tidakAda.checked);
     }
 
+    // tanggal serah wajib bila sertipikat dicentang sudah diserahkan; dicek
+    // lagi di server, ini supaya petugas langsung tahu sebelum menyimpan
+    function perbaruiWajibTanggal() {
+      tanggal.required = serah.checked;
+      tanggal.closest('.bidang-isian').classList.toggle('wajib', serah.checked);
+    }
+
     serah.addEventListener('change', function () {
       if (serah.checked && !tanggal.value) { tanggal.value = hariIniLokal(); }
+      perbaruiWajibTanggal();
       perbaruiSaran();
     });
     status.addEventListener('change', perbaruiSaran);
@@ -953,9 +961,12 @@ document.querySelectorAll('.modal-rinci').forEach(function (dialog) {
       perbaruiTidakAda();
       if (tidakAda.checked) { isiTidakAda.querySelector('input').focus(); }
     });
-    dialog.addEventListener('segarkan', function () { perbaruiSaran(); perbaruiTidakAda(); });
+    dialog.addEventListener('segarkan', function () {
+      perbaruiSaran(); perbaruiTidakAda(); perbaruiWajibTanggal();
+    });
     perbaruiSaran();
     perbaruiTidakAda();
+    perbaruiWajibTanggal();
   });
 })();
 
