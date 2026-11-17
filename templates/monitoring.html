@@ -3,8 +3,7 @@
 {% block isi %}
 
 <h1>Monitoring Inventarisasi</h1>
-<p class="jelas">Capaian pemeriksaan per kecamatan dan per petugas. Angka bergerak sendiri
-  setiap kali pemeriksaan disimpan di halaman detail bidang.</p>
+<p class="jelas">Capaian pemeriksaan bidang per kecamatan dan per petugas.</p>
 
 <div class="tab">
   <a href="/monitoring" class="aktif">Rekap</a>
@@ -23,30 +22,57 @@
       <input type="date" id="sampai" name="sampai" value="{{ sampai }}"
              min="{{ batas_awal }}" max="{{ batas_akhir }}">
     </div>
-    <div class="bidang-isian">
-      <label>&nbsp;</label>
-      <div style="display:flex; gap:6px; flex-wrap:wrap">
-        <button type="submit">Terapkan</button>
-        <a href="/monitoring" class="tombol kedua">Semua periode</a>
-        <a class="tombol kedua" href="/monitoring/laporan.pdf?dari={{ dari }}&amp;sampai={{ sampai }}"
-           target="_blank" rel="noopener">PDF semua petugas</a>
-      </div>
+    <div class="saring-aksi">
+      <button type="submit">Terapkan</button>
+      <a href="/monitoring" class="tombol kedua">Semua periode</a>
+      <a class="tombol kedua" href="/monitoring/laporan.pdf?dari={{ dari }}&amp;sampai={{ sampai }}"
+         target="_blank" rel="noopener">PDF semua petugas</a>
     </div>
-    <div class="bidang-isian isian-lebar">
-      <label>&nbsp;</label>
-      <p class="kecil redup" style="margin:6px 0 0">
-        Periode terpakai: <strong>{{ teks_periode }}</strong>.
-        {% if dari or sampai %}Kolom <em>Diperiksa</em> dan seluruh rekap petugas hanya
-        menghitung pemeriksaan dengan tanggal di dalam periode ini; pemeriksaan tanpa
-        tanggal tidak ikut.{% else %}Isi tanggal untuk membatasi rekap pada satu
-        rentang waktu.{% endif %}
-      </p>
-    </div>
+    <p class="petunjuk petunjuk-cari">Periode: <strong>{{ teks_periode }}</strong></p>
   </form>
 </div>
 
-<div class="kartu rapat" style="margin-bottom:18px">
-  <div style="padding:16px 16px 0"><h2>Rekap per kecamatan</h2></div>
+{% set nt = namespace(bidang=0, periksa=0, lokasi=0) %}
+{% for r in kec %}
+  {% set nt.bidang = nt.bidang + r.bidang %}
+  {% set nt.periksa = nt.periksa + (r.diperiksa or 0) %}
+  {% set nt.lokasi = nt.lokasi + (r.berlokasi or 0) %}
+{% endfor %}
+<div class="kisi k6">
+  <div class="angka-kotak">
+    <div class="nilai">{{ nt.bidang | angka }}</div>
+    <div class="label">Bidang</div>
+  </div>
+  <div class="angka-kotak hijau">
+    <div class="nilai">{{ nt.periksa | angka }}</div>
+    <div class="label">Sudah diperiksa</div>
+  </div>
+  <div class="angka-kotak oranye">
+    <div class="nilai">{{ (nt.bidang - nt.periksa) | angka }}</div>
+    <div class="label">Sisa</div>
+  </div>
+  <div class="angka-kotak ungu">
+    <div class="nilai">{{ '%.1f' % persen(nt.periksa, nt.bidang) }}%</div>
+    <div class="label">Progres pemeriksaan</div>
+  </div>
+</div>
+
+<details class="bantuan">
+  <summary>Cara membaca angka ini</summary>
+  <div class="bantuan-isi">
+    <ul>
+      <li>Angka bergerak sendiri setiap kali pemeriksaan disimpan di halaman detail bidang.</li>
+      {% if dari or sampai %}<li>Dengan periode terisi, <em>Diperiksa</em> dan rekap petugas hanya menghitung pemeriksaan bertanggal di dalam periode; pemeriksaan tanpa tanggal tidak ikut.</li>{% endif %}
+      <li>Rekap petugas dihitung dari <strong>siapa yang mengisi pemeriksaan</strong> (kolom Petugas di halaman detail), bukan dari penugasan desa.</li>
+      <li>Kolom penugasan hanya pembanding target, jadi tidak ikut disaring tanggal. Target per desa diatur di <a href="/monitoring/desa">Penugasan per desa</a>.</li>
+    </ul>
+  </div>
+</details>
+
+<div class="panel-tab" data-panel-tab="Bagian monitoring">
+
+<section class="kartu rapat panel" id="per-kecamatan" data-judul="Per kecamatan" data-hitung="{{ kec | length }}">
+  <div class="panel-kepala"><h2>Rekap per kecamatan</h2></div>
   <div class="gulir">
     <table>
       <thead>
@@ -94,15 +120,12 @@
       </tbody>
     </table>
   </div>
-</div>
+</section>
 
-<div class="kartu rapat">
-  <div style="padding:16px 16px 0">
+<section class="kartu rapat panel" id="per-petugas" data-judul="Per petugas" data-hitung="{{ ptg | length }}">
+  <div class="panel-kepala">
     <h2>Rekap per petugas</h2>
-    <p class="jelas">Dihitung dari <strong>siapa yang mengisi pemeriksaan</strong> pada tiap bidang
-      (kolom Petugas di halaman detail), bukan dari penugasan desa, dan mengikuti periode
-      yang dipilih di atas. Kolom penugasan hanya pembanding target sehingga tidak ikut
-      disaring tanggal. Tombol <strong>PDF</strong> mencetak laporan petugas itu sesuai periode.</p>
+    <p class="kecil redup">Tombol PDF mencetak laporan petugas itu sesuai periode.</p>
   </div>
   <div class="gulir">
     <table>
@@ -171,8 +194,9 @@
         <tr>
           <td></td>
           <td colspan="9" style="padding-top:0">
-            <span class="kecil redup">Desa yang diperiksa:</span>
-            <div style="display:flex; flex-wrap:wrap; gap:6px; margin-top:4px">
+            <details class="lipat-desa">
+            <summary>Desa yang diperiksa ({{ r.daftar_desa | length }})</summary>
+            <div style="display:flex; flex-wrap:wrap; gap:6px; margin-top:6px">
               {% for d in r.daftar_desa %}
                 <a class="tanda abu" style="text-decoration:none"
                    href="/katalog?desa={{ d.wilayah_id }}&amp;petugas={{ r.nama | urlencode }}&amp;periksa=sudah"
@@ -181,6 +205,7 @@
                 </a>
               {% endfor %}
             </div>
+            </details>
           </td>
         </tr>
         {% endif %}
@@ -200,8 +225,9 @@
     {% else %}
       Semua bidang yang sudah diperiksa tercatat petugasnya.
     {% endif %}
-    Target per desa diatur di <a href="/monitoring/desa">Penugasan per desa</a>.
   </p>
-</div>
+</section>
+
+</div>{# /panel-tab #}
 
 {% endblock %}

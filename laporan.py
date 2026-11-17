@@ -690,3 +690,127 @@ def buat_pdf_serah(h, rincian, saringan=(), kelompok="hari",
 
     dok.build(isi, canvasmaker=_kanvas(kaki))
     return penampung.getvalue()
+
+
+# ------------------------------------------------- rekap tipologi residu
+def _nol(n):
+    """Angka sel rekap; nol ditulis "-" supaya sel berisi mudah terlihat."""
+    return angka(n) if n else "-"
+
+
+def buat_pdf_tipologi(rk, saringan=(), tanpa="(tanpa tipologi)",
+                      dicetak_oleh=None, dicetak_pada=""):
+    """Kembalikan isi PDF (bytes) rekap tipologi residu belum diserahkan.
+
+    ``rk`` adalah hasil app.hitung_rekap_tipologi; ``saringan`` pasangan
+    (label, nilai) saringan wilayah yang sedang terpasang.
+    """
+    penampung = BytesIO()
+    dok = SimpleDocTemplate(
+        penampung, pagesize=A4_LANSKAP,
+        leftMargin=12 * mm, rightMargin=12 * mm,
+        topMargin=12 * mm, bottomMargin=16 * mm,
+        title="Rekap Tipologi Residu PTSL Belum Diserahkan", author=KANTOR)
+    kaki = "Dicetak %s%s - Aplikasi Warkah" % (
+        dicetak_pada, " oleh %s" % dicetak_oleh if dicetak_oleh else "")
+    lebar_isi = A4_LANSKAP[0] - 24 * mm
+    label = lambda k: "Tanpa" if k == tanpa else k
+    jumlah = rk["jumlah"]
+
+    isi = [
+        Paragraph("REKAP TIPOLOGI RESIDU PTSL BELUM DISERAHKAN", JUDUL),
+        Paragraph(KANTOR, SUBJUDUL),
+        Spacer(1, 8),
+    ]
+    ket = list(saringan) + [
+        ("Cakupan", "Residu aktif yang belum diserahkan (berkas tidak ditemukan "
+                    "tidak ikut)"),
+        ("Jumlah berkas", "%s berkas dalam %s tahun anggaran" % (
+            angka(jumlah), len(rk["tahun"]))),
+        ("Kelompok terbanyak", "%s (%s berkas, %s)" % (
+            rk["terbanyak"], angka(rk["total_kel"][rk["terbanyak"]]),
+            _persen(rk["total_kel"][rk["terbanyak"]], jumlah))
+         if rk["terbanyak"] and jumlah else "-"),
+        ("Tanpa tipologi", "%s berkas" % angka(rk["total_kel"].get(tanpa, 0))),
+        ("Berkas > 1 kelompok", "%s berkas" % angka(rk["ganda"])),
+    ]
+    t = Table([[Paragraph(_esc(a), ISI), Paragraph(": " + _esc(b), ISI)] for a, b in ket],
+              colWidths=[48 * mm, 200 * mm], hAlign="LEFT")
+    t.setStyle(TableStyle([
+        ("TOPPADDING", (0, 0), (-1, -1), 1), ("BOTTOMPADDING", (0, 0), (-1, -1), 1),
+        ("LINEBELOW", (0, -1), (-1, -1), 0.6, ABU),
+    ]))
+    isi.append(t)
+
+    if not jumlah:
+        isi.append(Spacer(1, 12))
+        isi.append(Paragraph("Tidak ada residu belum diserahkan pada saringan ini.", ISI))
+        dok.build(isi, canvasmaker=_kanvas(kaki))
+        return penampung.getvalue()
+
+    # ---- A. tahun x kelompok
+    isi.append(Paragraph("A. Per kelompok tipologi dan tahun", BAGIAN))
+    isi.append(Paragraph(
+        "Berkas yang membawa kode dari lebih dari satu kelompok terhitung di tiap "
+        "kelompoknya, jadi jumlah kolom kelompok bisa melebihi Jumlah berkas.", KECIL))
+    isi.append(Spacer(1, 3))
+    kel = rk["kelompok"]
+    kanan = tuple(range(1, len(kel) + 2))
+    baris = [_kepala("Tahun", *[label(k) for k in kel], "Jumlah berkas", kanan=kanan)]
+    for th in rk["tahun"]:
+        d = rk["per_kel"].get(th, {})
+        baris.append([th] + [_nol(d.get(k, 0)) for k in kel] + [angka(rk["berkas"][th])])
+    baris.append(["% dari berkas"] + [_persen(rk["total_kel"][k], jumlah) for k in kel]
+                 + ["100,0%"])
+    baris.append(["SELURUH TAHUN"] + [_nol(rk["total_kel"][k]) for k in kel]
+                 + [angka(jumlah)])
+    w_tahun, w_jumlah = 30 * mm, 26 * mm
+    w_sel = min(22 * mm, (lebar_isi - w_tahun - w_jumlah) / len(kel))
+    tbl = _tabel_lebar(baris, [w_tahun] + [w_sel] * len(kel) + [w_jumlah],
+                       rata_kanan=kanan)
+    tbl.setStyle(TableStyle([
+        ("FONT", (-1, 1), (-1, -1), "Helvetica-Bold", 8),
+        ("TEXTCOLOR", (0, -2), (-1, -2), ABU_TUA),
+        ("FONT", (0, -2), (-1, -2), "Helvetica-Oblique", 7.5),
+    ]))
+    isi.append(tbl)
+
+    # ---- B. kode x tahun, dengan subtotal per kelompok
+    isi.append(CondPageBreak(60 * mm))
+    isi.append(Paragraph("B. Rincian per kode tipologi", BAGIAN))
+    isi.append(Paragraph("Baris berlatar abu adalah subtotal kelompok; kolom paling "
+                         "kanan jumlah seluruh tahun.", KECIL))
+    isi.append(Spacer(1, 3))
+    thn = rk["tahun"]
+    kanan = tuple(range(2, len(thn) + 3))
+    baris = [_kepala("Kode", "Keterangan", *thn, "Seluruh tahun", kanan=kanan)]
+    subtotal = []
+    for g in kel:
+        anak = [k for k in rk["kode"] if rk["kel_dari_kode"].get(k) == g and k != g]
+        if anak:
+            subtotal.append(len(baris))
+        ketg = ("Tipologi belum diisi" if g == tanpa
+                else rk["nama"].get(g) or ("Kelompok %s" % g if anak else ""))
+        d = {th: rk["per_kel"].get(th, {}).get(g, 0) for th in thn}
+        baris.append([label(g), _p(ketg, kosong="")] + [_nol(d[th]) for th in thn]
+                     + [_nol(rk["total_kel"][g])])
+        for k in anak:
+            dk = rk["per_kode"].get(k, {})
+            baris.append(["   " + k, _p(rk["nama"].get(k), kosong="")]
+                         + [_nol(dk.get(th, 0)) for th in thn]
+                         + [_nol(rk["total_kode"][k])])
+    baris.append(["JUMLAH BERKAS", ""] + [angka(rk["berkas"][th]) for th in thn]
+                 + [angka(jumlah)])
+    w_kode, w_ket, w_total = 22 * mm, 46 * mm, 24 * mm
+    w_sel = min(20 * mm, (lebar_isi - w_kode - w_ket - w_total) / max(len(thn), 1))
+    tbl = _tabel_lebar(baris, [w_kode, w_ket] + [w_sel] * len(thn) + [w_total],
+                       rata_kanan=kanan)
+    gaya = [("FONT", (-1, 1), (-1, -1), "Helvetica-Bold", 8)]
+    for i in subtotal:
+        gaya += [("FONT", (0, i), (-1, i), "Helvetica-Bold", 8),
+                 ("BACKGROUND", (0, i), (-1, i), colors.HexColor("#f3f4f6"))]
+    tbl.setStyle(TableStyle(gaya))
+    isi.append(tbl)
+
+    dok.build(isi, canvasmaker=_kanvas(kaki))
+    return penampung.getvalue()

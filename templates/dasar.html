@@ -82,6 +82,8 @@
                 '<path d="M7 3h7l5 5v13H7z"/><path d="M14 3v5h5"/><path d="M10 13h6M10 17h4"/>') }}
         {{ menu('/residu/rekap', 'Rekap blanko', path.startswith('/residu/rekap'),
                 '<path d="m4 6 1.5 1.5L8 5"/><path d="M11 6h9"/><path d="m4 12 1.5 1.5L8 11"/><path d="M11 12h9"/><path d="m4 18 1.5 1.5L8 17"/><path d="M11 18h9"/>') }}
+        {{ menu('/residu/tipologi/rekap', 'Rekap tipologi', path.startswith('/residu/tipologi'),
+                '<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>') }}
         {{ menu('/residu/penyerahan', 'Laporan penyerahan', path.startswith('/residu/penyerahan'),
                 '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/><path d="m9 15 2 2 4-4"/>') }}
         {{ menu('/residu/catatan', 'Catatan residu', path.startswith('/residu/catatan'),
@@ -253,6 +255,84 @@
       if (cari) a.href = a.getAttribute('href') + cari;
     });
   } catch (e) {}
+
+  /* ---- tab panel: bagian laporan tampil satu per satu ---- */
+  /* Tiap <section class="panel" data-judul=".." data-hitung=".."> di dalam
+     [data-panel-tab] jadi satu tab. Tab terakhir yang dibuka diingat per
+     halaman selama tab peramban ini terbuka; #id panel di alamat menang. */
+  document.querySelectorAll('[data-panel-tab]').forEach(function (wadah, nomor) {
+    var panel = Array.prototype.filter.call(wadah.children, function (el) {
+      return el.classList.contains('panel');
+    });
+    if (panel.length < 2) return;
+    var kunci = 'warkah-panel' + location.pathname + '#' + nomor;
+    var daftar = document.createElement('div');
+    daftar.className = 'panel-tab-daftar';
+    daftar.setAttribute('role', 'tablist');
+    daftar.setAttribute('aria-label', wadah.getAttribute('data-panel-tab') || 'Bagian halaman');
+    var tombol = panel.map(function (p, i) {
+      if (!p.id) p.id = 'panel-' + nomor + '-' + i;
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.id = p.id + '-tab';
+      b.setAttribute('role', 'tab');
+      b.setAttribute('aria-controls', p.id);
+      b.textContent = p.getAttribute('data-judul') || ('Bagian ' + (i + 1));
+      var n = p.getAttribute('data-hitung');
+      if (n) {
+        b.appendChild(document.createTextNode(' '));   /* dibaca "Per desa 126" */
+        var s = document.createElement('span');
+        s.className = 'hitung';
+        s.textContent = n;
+        b.appendChild(s);
+      }
+      p.setAttribute('role', 'tabpanel');
+      p.setAttribute('aria-labelledby', b.id);
+      b.addEventListener('click', function () { pilih(i, false); });
+      daftar.appendChild(b);
+      return b;
+    });
+    function pilih(i, fokus) {
+      panel.forEach(function (p, j) {
+        var aktif = i === j;
+        p.hidden = !aktif;
+        tombol[j].setAttribute('aria-selected', aktif ? 'true' : 'false');
+        tombol[j].tabIndex = aktif ? 0 : -1;
+      });
+      if (fokus) tombol[i].focus();
+      /* geser daftar tab mendatar saja (layar sempit), halaman tidak ikut bergulir */
+      daftar.scrollLeft = Math.max(0, tombol[i].offsetLeft - daftar.clientWidth / 2 + tombol[i].offsetWidth / 2);
+      try { sessionStorage.setItem(kunci, panel[i].id); } catch (e) {}
+    }
+    daftar.addEventListener('keydown', function (e) {
+      var i = tombol.indexOf(document.activeElement);
+      if (i < 0) return;
+      var ke = { ArrowRight: i + 1, ArrowLeft: i - 1, Home: 0, End: tombol.length - 1 }[e.key];
+      if (ke === undefined) return;
+      e.preventDefault();
+      pilih((ke + tombol.length) % tombol.length, true);
+    });
+    wadah.insertBefore(daftar, panel[0]);
+    wadah.classList.add('siap');
+    var awal = 0, ingat = location.hash.slice(1);
+    try { ingat = ingat || sessionStorage.getItem(kunci); } catch (e) {}
+    panel.forEach(function (p, i) { if (p.id === ingat) awal = i; });
+    pilih(awal, false);
+  });
+
+  /* ---- menu Unduh: tutup bila klik di luar atau tekan Escape ---- */
+  document.addEventListener('click', function (e) {
+    document.querySelectorAll('details.menu-unduh[open]').forEach(function (d) {
+      if (!d.contains(e.target)) d.open = false;
+    });
+  });
+  document.addEventListener('keydown', function (e) {
+    if (e.key !== 'Escape') return;
+    document.querySelectorAll('details.menu-unduh[open]').forEach(function (d) {
+      d.open = false;
+      d.querySelector('summary').focus();
+    });
+  });
 
   /* ---- konfirmasi untuk tombol yang langsung mencatat sesuatu ---- */
   document.addEventListener('submit', function (e) {

@@ -1,0 +1,192 @@
+{% extends "dasar.html" %}
+{% block judul %}Rekap Tipologi Residu — Aplikasi Warkah{% endblock %}
+{% block isi %}
+
+<h1>Rekap Tipologi Residu Belum Diserahkan</h1>
+<p class="jelas">Residu yang belum diserahkan menurut kelompok tipologi (T1, T2, …), seluruh tahun dan per tahun. Klik angka untuk membuka daftar berkasnya.</p>
+
+<div class="tab">
+  <a href="/residu">Daftar residu</a>
+  <a href="/residu/rekap">Rekap pengecekan blanko</a>
+  <a href="/residu/tipologi/rekap" class="aktif">Rekap tipologi</a>
+  <a href="/residu/penyerahan">Laporan penyerahan</a>
+</div>
+
+<div class="kartu">
+  <form class="saring" method="get" action="/residu/tipologi/rekap">
+    <div class="bidang-isian">
+      <label for="kecamatan">Kecamatan</label>
+      <select id="kecamatan" name="kecamatan">
+        <option value="">Semua</option>
+        {% for k in kecamatan %}
+          <option value="{{ k.nama_kecamatan }}" {{ 'selected' if kec_terpilih == k.nama_kecamatan }}>{{ k.nama_kecamatan }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="bidang-isian">
+      <label for="desa">Desa</label>
+      <select id="desa" name="desa">
+        <option value="">Semua</option>
+        {% for d in desa_tampil %}
+          <option value="{{ d.id }}" {{ 'selected' if qp.get('desa') == d.id | string }}>
+            {{ d.nama_desa }}{{ '' if kec_terpilih else ' (' ~ d.nama_kecamatan ~ ')' }}
+          </option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="saring-aksi">
+      <button type="submit">Terapkan</button>
+      <a href="/residu/tipologi/rekap" class="tombol kedua">Reset</a>
+      <details class="menu-unduh">
+        <summary class="tombol kedua">Unduh</summary>
+        <div class="menu-unduh-isi">
+          <a href="/residu/tipologi/rekap.pdf{{ ('?' ~ kueri) if kueri }}" target="_blank" rel="noopener">PDF<small>Siap cetak untuk pimpinan</small></a>
+          <a href="/residu/tipologi/rekap.xlsx{{ ('?' ~ kueri) if kueri }}">Excel<small>Lembar per kelompok dan per kode</small></a>
+          <a href="/residu/tipologi/rekap.csv{{ ('?' ~ kueri) if kueri }}">CSV<small>Satu baris per tahun</small></a>
+        </div>
+      </details>
+    </div>
+  </form>
+</div>
+
+<div class="kisi k6">
+  <div class="angka-kotak oranye">
+    <div class="nilai">{{ rk.jumlah | angka }}</div>
+    <div class="label">Berkas belum diserahkan</div>
+  </div>
+  <div class="angka-kotak ungu">
+    <div class="nilai">{{ rk.terbanyak or '—' }}</div>
+    <div class="label">Kelompok terbanyak{% if rk.terbanyak %} ({{ rk.total_kel[rk.terbanyak] | angka }}){% endif %}</div>
+  </div>
+  <div class="angka-kotak merah">
+    <div class="nilai">{{ rk.total_kel[TANPA_TIPOLOGI] | angka }}</div>
+    <div class="label">Tanpa tipologi</div>
+  </div>
+  <div class="angka-kotak">
+    <div class="nilai">{{ rk.tahun | length }}</div>
+    <div class="label">Tahun anggaran</div>
+  </div>
+</div>
+
+<details class="bantuan">
+  <summary>Cara membaca rekap ini</summary>
+  <div class="bantuan-isi">
+    <ul>
+      <li>Hanya residu aktif yang belum diserahkan; berkas yang ditandai tidak ditemukan tidak ikut.</li>
+      <li>{{ rk.ganda | angka }} berkas membawa kode dari lebih dari satu kelompok (mis. T2.2 dan T3.3) dan terhitung di tiap kelompoknya, jadi jumlah kolom kelompok bisa melebihi <em>Jumlah berkas</em>.</li>
+      <li>Warna sel makin pekat bila angkanya makin besar.</li>
+    </ul>
+  </div>
+</details>
+
+<div class="panel-tab" data-panel-tab="Bagian rekap">
+
+{% macro sel(n, puncak, href) -%}
+  {%- if n -%}
+    <td class="angka sel-panas" style="--p:{{ '%.2f' % (n / puncak) }}"><a href="{{ href }}">{{ n | angka }}</a></td>
+  {%- else -%}
+    <td class="angka redup">·</td>
+  {%- endif -%}
+{%- endmacro %}
+
+{# ------------------------------------------------ tahun x kelompok tipologi #}
+<section class="kartu rapat panel" id="per-kelompok" data-judul="Per kelompok">
+  <div class="panel-kepala">
+    <h2>Per kelompok tipologi dan tahun</h2>
+  </div>
+  <div class="gulir">
+    <table class="tabel-tipologi">
+      <thead>
+        <tr>
+          <th>Tahun</th>
+          {% for k in rk.kelompok %}
+            <th class="angka" {% if rk.nama.get(k) %}title="{{ rk.nama[k] }}"{% endif %}>{{ 'Tanpa' if k == TANPA_TIPOLOGI else k }}</th>
+          {% endfor %}
+          <th class="angka">Jumlah berkas</th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for t in rk.tahun %}
+        <tr>
+          <td class="nowrap"><strong>{{ t }}</strong></td>
+          {% for k in rk.kelompok %}
+            {{ sel(rk.per_kel.get(t, {}).get(k, 0), puncak_kel, tautan(t, k)) }}
+          {% endfor %}
+          <td class="angka"><a href="{{ tautan(t) }}"><strong>{{ rk.berkas[t] | angka }}</strong></a></td>
+        </tr>
+      {% else %}
+        <tr><td colspan="{{ rk.kelompok | length + 2 }}" class="kosong">Tidak ada residu belum diserahkan pada saringan ini.</td></tr>
+      {% endfor %}
+      {% if rk.tahun %}
+        <tr class="total besar">
+          <td class="nowrap">Seluruh tahun</td>
+          {% for k in rk.kelompok %}
+            <td class="angka">{% if rk.total_kel[k] %}<a href="{{ tautan(None, k) }}">{{ rk.total_kel[k] | angka }}</a>{% else %}·{% endif %}</td>
+          {% endfor %}
+          <td class="angka"><a href="{{ tautan() }}">{{ rk.jumlah | angka }}</a></td>
+        </tr>
+        <tr class="persen">
+          <td class="kecil redup">% dari berkas</td>
+          {% for k in rk.kelompok %}
+            <td class="angka kecil redup">{{ '%.1f' % (100 * rk.total_kel[k] / rk.jumlah) }}%</td>
+          {% endfor %}
+          <td class="angka kecil redup">100%</td>
+        </tr>
+      {% endif %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+{# ------------------------------------------------------ kode x tahun (rinci) #}
+<section class="kartu rapat panel" id="per-kode" data-judul="Rincian per kode">
+  <div class="panel-kepala">
+    <h2>Rincian per kode tipologi</h2>
+    <p class="kecil redup">Baris berlatar adalah subtotal kelompok.</p>
+  </div>
+  <div class="gulir">
+    <table class="tabel-tipologi">
+      <thead>
+        <tr>
+          <th>Kode</th>
+          <th>Keterangan</th>
+          {% for t in rk.tahun %}<th class="angka">{{ t }}</th>{% endfor %}
+          <th class="angka">Seluruh tahun</th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for g in rk.kelompok %}
+        {% set anak = [] %}
+        {% for kd in rk.kode if rk.kel_dari_kode[kd] == g and kd != g %}{% set _ = anak.append(kd) %}{% endfor %}
+        <tr class="{{ 'subtotal' if anak else '' }}">
+          <td class="nowrap"><strong>{{ 'Tanpa' if g == TANPA_TIPOLOGI else g }}</strong></td>
+          <td class="kecil">{{ 'Tipologi belum diisi' if g == TANPA_TIPOLOGI else (rk.nama.get(g) or ('Kelompok ' ~ g if anak else '')) }}</td>
+          {% for t in rk.tahun %}
+            {% set n = rk.per_kel.get(t, {}).get(g, 0) %}
+            {% if anak %}
+              <td class="angka">{% if n %}<a href="{{ tautan(t, g) }}"><strong>{{ n | angka }}</strong></a>{% else %}·{% endif %}</td>
+            {% else %}
+              {{ sel(n, puncak_kode, tautan(t, g)) }}
+            {% endif %}
+          {% endfor %}
+          <td class="angka"><strong>{% if rk.total_kel[g] %}<a href="{{ tautan(None, g) }}">{{ rk.total_kel[g] | angka }}</a>{% else %}·{% endif %}</strong></td>
+        </tr>
+        {% for kd in anak %}
+          <tr>
+            <td class="nowrap" style="padding-left:22px">{{ kd }}</td>
+            <td class="kecil">{{ rk.nama.get(kd) or '' }}</td>
+            {% for t in rk.tahun %}
+              {{ sel(rk.per_kode.get(kd, {}).get(t, 0), puncak_kode, tautan(t, kd)) }}
+            {% endfor %}
+            <td class="angka">{% if rk.total_kode[kd] %}<a href="{{ tautan(None, kd) }}">{{ rk.total_kode[kd] | angka }}</a>{% else %}·{% endif %}</td>
+          </tr>
+        {% endfor %}
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+</div>{# /panel-tab #}
+
+{% endblock %}

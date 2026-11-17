@@ -1547,3 +1547,240 @@ body.modal-terbuka { overflow: hidden; }
 @media (hover: none) {
   .pintasan { display: none; }
 }
+
+/* ---------------------------------------------------- rekap tipologi residu */
+/* arsiran manila sebanding dengan isi sel (--p: 0..1 dari sel terbesar) */
+.tabel-tipologi td.sel-panas {
+  background: color-mix(in srgb, var(--manila) calc(var(--p, 0) * 55%), transparent);
+}
+.tabel-tipologi td.angka a { color: inherit; text-decoration: none; display: block; }
+.tabel-tipologi td.angka a:hover { text-decoration: underline; }
+.tabel-tipologi tr.subtotal td { background: var(--kertas); border-top: 1px solid var(--garis); }
+.tabel-tipologi tr.persen td { border-top: 0; }
+
+/* ==========================================================================
+   PENYEDERHANAAN HALAMAN (2026-11)
+   Satu halaman = satu pertanyaan utama. Bagian pendukung dibuka bila perlu:
+   - .panel-tab   : beberapa tabel laporan jadi tab map arsip, satu tampil
+   - .angka-lain  : angka pendamping kecil di bawah 4 kotak angka utama
+   - .bantuan     : penjelasan panjang dilipat di balik "Cara membaca"
+   - .menu-unduh  : PDF / Excel / CSV dikumpulkan dalam satu tombol
+   Tanpa JavaScript semua bagian tetap tampil berurutan seperti dulu.
+   ========================================================================== */
+
+/* ---- tab panel: daftar tab menempel di atas kartu, seperti tab map */
+.panel-tab { margin-top: 22px; }
+.panel-tab:not(.siap) > .panel + .panel { margin-top: 18px; }
+.panel-kepala { padding: 16px 16px 0; }
+.panel-kepala h2 { margin: 0; }
+.panel-kepala p { margin: 4px 0 0; }
+.panel-kepala .bantuan { margin-top: 2px; }
+.panel-tab.siap > .panel > .panel-kepala h2 { display: none; }
+.panel-tab.siap > .panel > .panel-kepala { padding-top: 12px; }
+.panel-tab.siap > .panel { border-top-left-radius: 0; }
+
+.panel-tab-daftar {
+  display: flex;
+  gap: 4px;
+  align-items: flex-end;
+  overflow-x: auto;
+  scrollbar-width: none;
+  position: relative;
+  z-index: 1;
+  margin-bottom: -1px;
+}
+.panel-tab-daftar::-webkit-scrollbar { display: none; }
+.panel-tab-daftar button {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  background: var(--kertas-tua);
+  color: var(--redup);
+  border: 1px solid var(--garis);
+  border-bottom-color: transparent;
+  border-radius: 7px 7px 0 0;
+  padding: 9px 14px 8px;
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.panel-tab-daftar button:hover { background: #fff; color: var(--tinta); }
+.panel-tab-daftar button[aria-selected="true"] {
+  background: var(--kartu);
+  color: var(--tinta);
+  border-color: var(--garis);
+  border-bottom-color: var(--kartu);
+  box-shadow: inset 0 3px 0 var(--manila);
+  padding-top: 11px;
+}
+.panel-tab-daftar .hitung {
+  font-size: 11.5px;
+  font-weight: 600;
+  background: rgba(22, 52, 63, .08);
+  color: inherit;
+  border-radius: 999px;
+  padding: 1px 7px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---- angka pendamping di bawah kotak angka utama */
+.angka-lain {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 22px;
+  margin: -6px 0 18px;
+  font-size: 13px;
+  color: var(--redup);
+}
+.angka-lain > div { display: flex; gap: 6px; align-items: baseline; }
+.angka-lain dt { margin: 0; }
+.angka-lain dd { margin: 0; font-weight: 700; color: var(--teks); font-variant-numeric: tabular-nums; }
+
+/* ---- penjelasan yang dilipat */
+details.bantuan { font-size: 12.5px; color: var(--redup); }
+details.bantuan > summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  list-style: none;
+  padding: 3px 0;
+  color: var(--tinta);
+  font-weight: 600;
+}
+details.bantuan > summary::-webkit-details-marker { display: none; }
+details.bantuan > summary::before {
+  content: "?";
+  display: inline-grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 1.5px solid currentColor;
+  font-size: 10.5px;
+  font-weight: 800;
+}
+details.bantuan > summary:hover { text-decoration: underline; }
+details.bantuan > summary:focus-visible { outline: none; box-shadow: var(--fokus); border-radius: 4px; }
+.bantuan-isi {
+  margin: 6px 0 4px;
+  padding: 10px 12px;
+  background: var(--manila-muda);
+  border-left: 3px solid var(--manila);
+  border-radius: 0 var(--radius-kecil) var(--radius-kecil) 0;
+  color: var(--teks);
+  line-height: 1.5;
+  max-width: 82ch;
+}
+.bantuan-isi p { margin: 0; }
+.bantuan-isi p + p, .bantuan-isi ul { margin-top: 6px; }
+.bantuan-isi ul { padding-left: 18px; margin-bottom: 0; }
+
+/* ---- satu tombol Unduh berisi pilihan format */
+details.menu-unduh { position: relative; display: inline-block; }
+details.menu-unduh > summary { list-style: none; cursor: pointer; gap: 6px; display: inline-flex; align-items: center; }
+details.menu-unduh > summary::-webkit-details-marker { display: none; }
+details.menu-unduh > summary::after {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: translateY(-2px) rotate(45deg);
+  margin-left: 4px;
+}
+.menu-unduh-isi {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  z-index: 30;
+  min-width: 230px;
+  background: var(--kartu);
+  border: 1px solid var(--garis);
+  border-radius: var(--radius-kecil);
+  box-shadow: 0 8px 24px rgba(14, 37, 45, .14);
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+}
+.menu-unduh.kiri .menu-unduh-isi { right: auto; left: 0; }
+.menu-unduh-isi a, .menu-unduh-isi button {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  padding: 8px 10px;
+  border-radius: 4px;
+  color: var(--teks);
+  background: none;
+  border: 0;
+  font-size: 13.5px;
+  font-weight: 600;
+  text-align: left;
+  text-decoration: none;
+  width: 100%;
+}
+.menu-unduh-isi a:hover, .menu-unduh-isi button:hover { background: var(--kertas); text-decoration: none; }
+.menu-unduh-isi small { font-weight: 400; font-size: 12px; color: var(--redup); }
+.menu-unduh-isi hr { border: 0; border-top: 1px solid var(--garis-halus); margin: 4px 2px; width: auto; }
+
+/* ---- baris aksi kanan pada kartu saringan */
+.saring-aksi { display: flex; gap: 6px; flex-wrap: wrap; align-items: flex-end; margin-left: auto; }
+
+/* ---- daftar desa per petugas (monitoring) yang dilipat */
+details.lipat-desa > summary {
+  cursor: pointer;
+  font-size: 12.5px;
+  color: var(--tinta);
+  font-weight: 600;
+  list-style: none;
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+}
+details.lipat-desa > summary::-webkit-details-marker { display: none; }
+details.lipat-desa > summary::before { content: "+"; font-weight: 800; width: 10px; }
+details.lipat-desa[open] > summary::before { content: "\2212"; }
+details.lipat-desa > summary:focus-visible { outline: none; box-shadow: var(--fokus); border-radius: 4px; }
+
+@media (max-width: 760px) {
+  .saring-aksi { margin-left: 0; width: 100%; }
+  .saring-aksi > * { flex: 1 1 auto; }
+  details.menu-unduh > summary { width: 100%; justify-content: center; }
+  .menu-unduh-isi { left: 0; right: auto; }
+  .panel-tab-daftar button { padding: 8px 11px 7px; font-size: 12.5px; }
+}
+.panel-tab.siap > .panel > .panel-kepala:not(:has(> :not(h2))) { display: none; }
+.periode-cepat { display: flex; gap: 6px; flex-wrap: wrap; }
+
+/* ---- kartu yang dilipat: bagian sekunder di bawah daftar */
+details.kartu-lipat > summary {
+  list-style: none;
+  cursor: pointer;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 12px;
+  margin: -4px -6px;
+  padding: 4px 6px 4px 28px;
+  position: relative;
+  border-radius: var(--radius-kecil);
+}
+details.kartu-lipat > summary::-webkit-details-marker { display: none; }
+details.kartu-lipat > summary::before {
+  content: "";
+  position: absolute;
+  left: 9px;
+  top: 50%;
+  width: 7px;
+  height: 7px;
+  border-right: 2px solid var(--tinta);
+  border-bottom: 2px solid var(--tinta);
+  transform: translateY(-70%) rotate(-45deg);
+}
+details.kartu-lipat[open] > summary::before { transform: translateY(-70%) rotate(45deg); }
+details.kartu-lipat > summary:hover { background: var(--kertas); }
+details.kartu-lipat > summary:focus-visible { outline: none; box-shadow: var(--fokus); }
+details.kartu-lipat > summary h2 { margin: 0; }
+details.kartu-lipat[open] > summary { margin-bottom: 12px; }

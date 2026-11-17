@@ -1454,6 +1454,20 @@ def kode_catatan(kon, form):
 TANPA_TAHUN = "(tanpa tahun)"
 
 
+def syarat_tipologi(kode):
+    """Potongan WHERE untuk satu kode tipologi atau satu kelompok tipologi.
+
+    Tipologi disimpan sebagai daftar kode dipisah koma, mis. "T1.1,T2.2";
+    koma pembungkus dipakai agar T1.1 tidak ikut cocok dengan T1.10. Kode
+    tanpa titik (mis. "T2") juga mencakup seluruh anak kelompoknya (T2.1 ..
+    T2.4), dipakai oleh tautan di halaman rekap tipologi.
+    """
+    if "." in kode:
+        return "(',' || r.tipologi || ',') LIKE ?", ["%," + kode + ",%"]
+    return ("((',' || r.tipologi || ',') LIKE ? OR (',' || r.tipologi) LIKE ?)",
+            ["%," + kode + ",%", "%," + kode + ".%"])
+
+
 def filter_residu(qp, kecuali=()):
     """Susun potongan WHERE + parameter untuk daftar residu.
 
@@ -1506,10 +1520,9 @@ def filter_residu(qp, kecuali=()):
 
     t = (qp.get("tipologi") or "").strip() if "tipologi" not in kecuali else ""
     if t:
-        # tipologi disimpan sebagai daftar kode dipisah koma, mis. "T1.1,T2.2";
-        # koma pembungkus dipakai agar T1.1 tidak ikut cocok dengan T1.10
-        syarat.append("(',' || r.tipologi || ',') LIKE ?")
-        par.append("%," + t + ",%")
+        s_t, p_t = syarat_tipologi(t)
+        syarat.append(s_t)
+        par += p_t
     elif (qp.get("tipologi_kosong") or "") == "1":
         syarat.append("NULLIF(TRIM(COALESCE(r.tipologi, '')), '') IS NULL")
 
@@ -1610,11 +1623,16 @@ async def residu(request: Request):
         "SELECT kode, kelompok, nama FROM tipologi ORDER BY urut").fetchall()
     # berapa baris memakai tiap kode tipologi, mengikuti saringan yang sedang aktif
     hitung_tipologi = {}
-    for t in daftar_tipologi:
-        hitung_tipologi[t["kode"]] = kon.execute(
+    # kelompok yang beranak (T1 = T1.1 .. T1.4) juga dihitung supaya bisa
+    # dipilih utuh dari kotak saringan Tipologi
+    kode_hitung = list(dict.fromkeys(
+        [t["kelompok"] for t in daftar_tipologi if t["kelompok"] != t["kode"]]
+        + [t["kode"] for t in daftar_tipologi]))
+    for kode in kode_hitung:
+        s_t, p_t = syarat_tipologi(kode)
+        hitung_tipologi[kode] = kon.execute(
             "SELECT COUNT(*) FROM residu r LEFT JOIN wilayah w ON w.id = r.wilayah_id"
-            + (where + " AND " if where else " WHERE ")
-            + "(',' || r.tipologi || ',') LIKE ?", par + ["%," + t["kode"] + ",%"]
+            + (where + " AND " if where else " WHERE ") + s_t, par + p_t
         ).fetchone()[0]
     daftar_petugas = kon.execute(
         "SELECT nama FROM petugas WHERE aktif = 1 ORDER BY nama").fetchall()
@@ -2155,6 +2173,325 @@ async def rekap_blanko_csv(request: Request):
     return Response(isi_csv.encode("utf-8"), media_type="text/csv; charset=utf-8",
                     headers={"Content-Disposition":
                              'attachment; filename="%s"' % berkas})
+
+
+# ------------------------------------------------- rekap tipologi residu
+# Sebaran residu yang BELUM diserahkan per kelompok tipologi (T1, T2, ...) dan
+# per kode (T1.1, T1.2, ...), untuk seluruh tahun sekaligus per tahun anggaran.
+# Hanya residu aktif: baris yang ditandai berkas tidak ditemukan tidak ikut,
+# sama dengan angka bawaan halaman Daftar residu.
+
+TANPA_TIPOLOGI = "(tanpa tipologi)"
+
+
+def hitung_rekap_tipologi(kon, qp):
+    """Hitung matriks tahun x kelompok dan tahun x kode tipologi.
+
+    Satu berkas bisa membawa lebih dari satu kode (mis. "T2.2,T3.3"); berkas
+    itu dihitung sekali di tiap kelompok/kode yang dibawanya, sehingga jumlah
+    seluruh kolom bisa melebihi jumlah berkas. Kolom "Jumlah berkas" selalu
+    menghitung satu berkas satu kali.
+    """
+    syarat = ["r.tidak_ditemukan = 0", "r.sudah_diserahkan = 0"]
+    par = []
+    for kolom, kunci in (("w.nama_kecamatan", "kecamatan"), ("r.wilayah_id", "desa")):
+        nilai = (qp.get(kunci) or "").strip()
+        if nilai:
+            syarat.append("%s = ?" % kolom)
+            par.append(nilai)
+    baris = kon.execute(
+        "SELECT r.tahun, r.tipologi FROM residu r "
+        "LEFT JOIN wilayah w ON w.id = r.wilayah_id WHERE " + " AND ".join(syarat),
+        par).fetchall()
+
+    acuan = kon.execute(
+        "SELECT kode, kelompok, nama FROM tipologi ORDER BY urut").fetchall()
+    kel_dari_kode = {t["kode"]: t["kelompok"] for t in acuan}
+    kelompok = list(dict.fromkeys(t["kelompok"] for t in acuan))
+    kode = [t["kode"] for t in acuan]
+    nama = {t["kode"]: t["nama"] for t in acuan}
+
+    per_kel, per_kode, berkas, ganda = {}, {}, {}, 0
+    for r in baris:
+        th = r["tahun"] or TANPA_TAHUN
+        berkas[th] = berkas.get(th, 0) + 1
+        kodes = {k.strip() for k in (r["tipologi"] or "").split(",") if k.strip()}
+        # kode di luar acuan tetap dihitung, kelompoknya diambil dari depan titik
+        kels = {kel_dari_kode.get(k, k.split(".")[0]) for k in kodes}
+        if len(kels) > 1:
+            ganda += 1
+        for k in kels or {TANPA_TIPOLOGI}:
+            per_kel.setdefault(th, {})
+            per_kel[th][k] = per_kel[th].get(k, 0) + 1
+        for k in kodes or {TANPA_TIPOLOGI}:
+            per_kode.setdefault(k, {})
+            per_kode[k][th] = per_kode[k].get(th, 0) + 1
+
+    for k in sorted({k for d in per_kel.values() for k in d} - set(kelompok)
+                    - {TANPA_TIPOLOGI}, key=impor_residu.urut_tipologi):
+        kelompok.append(k)
+    for k in sorted(set(per_kode) - set(kode) - {TANPA_TIPOLOGI},
+                    key=impor_residu.urut_tipologi):
+        kode.append(k)
+        kel_dari_kode[k] = k.split(".")[0]
+    kelompok.append(TANPA_TIPOLOGI)
+    kode.append(TANPA_TIPOLOGI)
+    kel_dari_kode[TANPA_TIPOLOGI] = TANPA_TIPOLOGI
+
+    # tahun terurut naik, "(tanpa tahun)" paling akhir
+    tahun = sorted(berkas, key=lambda t: (t == TANPA_TAHUN, t))
+    total_kel = {k: sum(per_kel.get(t, {}).get(k, 0) for t in tahun) for k in kelompok}
+    total_kode = {k: sum(per_kode.get(k, {}).values()) for k in kode}
+    return {
+        "tahun": tahun, "kelompok": kelompok, "kode": kode, "nama": nama,
+        "kel_dari_kode": kel_dari_kode, "per_kel": per_kel, "per_kode": per_kode,
+        "berkas": berkas, "total_kel": total_kel, "total_kode": total_kode,
+        "jumlah": sum(berkas.values()), "ganda": ganda,
+        "terbanyak": max((k for k in kelompok if k != TANPA_TIPOLOGI),
+                         key=lambda k: total_kel[k], default=None),
+    }
+
+
+def tautan_rekap_tipologi(qp, tahun=None, tipologi=None):
+    """Alamat Daftar residu yang isinya sama dengan satu sel rekap."""
+    p = [("serah", "belum")]
+    for kunci in ("kecamatan", "desa"):
+        if (qp.get(kunci) or "").strip():
+            p.append((kunci, qp.get(kunci).strip()))
+    if tahun:
+        p.append(("tahun", tahun))
+    if tipologi == TANPA_TIPOLOGI:
+        p.append(("tipologi_kosong", "1"))
+    elif tipologi:
+        p.append(("tipologi", tipologi))
+    return "/residu?" + "&".join("%s=%s" % (k, quote(v, safe="")) for k, v in p)
+
+
+async def rekap_tipologi(request: Request):
+    """Rekap residu belum diserahkan per kelompok/kode tipologi dan per tahun."""
+    qp = request.query_params
+    kon = db.sambung()
+    rk = hitung_rekap_tipologi(kon, qp)
+    kecamatan = kon.execute(
+        "SELECT DISTINCT w.nama_kecamatan FROM residu r JOIN wilayah w "
+        "ON w.id = r.wilayah_id ORDER BY w.nama_kecamatan").fetchall()
+    desa = [dict(x) for x in kon.execute(
+        "SELECT DISTINCT w.id, w.nama_desa, w.nama_kecamatan FROM residu r "
+        "JOIN wilayah w ON w.id = r.wilayah_id "
+        "ORDER BY w.nama_kecamatan, w.nama_desa")]
+    kon.close()
+
+    kec_terpilih = (qp.get("kecamatan") or "").strip()
+    desa_tampil = [d for d in desa
+                   if not kec_terpilih or d["nama_kecamatan"] == kec_terpilih]
+    kueri = "&".join("%s=%s" % (k, quote(v, safe=""))
+                     for k, v in qp.multi_items() if v)
+    # sel terbesar (selain total) dipakai sebagai patokan arsiran sel tabel
+    puncak_kel = max([n for d in rk["per_kel"].values() for n in d.values()] or [1])
+    puncak_kode = max([n for d in rk["per_kode"].values() for n in d.values()] or [1])
+
+    return templates.TemplateResponse(request, "residu_tipologi.html", konteks(
+        request, rk=rk, qp=qp, kueri=kueri, kecamatan=kecamatan,
+        desa_tampil=desa_tampil, kec_terpilih=kec_terpilih,
+        puncak_kel=puncak_kel, puncak_kode=puncak_kode,
+        tautan=lambda tahun=None, tipologi=None: tautan_rekap_tipologi(qp, tahun, tipologi),
+        TANPA_TIPOLOGI=TANPA_TIPOLOGI))
+
+
+def saringan_rekap_tipologi(kon, qp):
+    """Pasangan (label, nilai) saringan wilayah rekap tipologi, untuk unduhan."""
+    saringan = []
+    kec = (qp.get("kecamatan") or "").strip()
+    if kec:
+        saringan.append(("Kecamatan", kec))
+    desa = (qp.get("desa") or "").strip()
+    if desa.isdigit():
+        w = kon.execute("SELECT nama_desa, nama_kecamatan FROM wilayah WHERE id = ?",
+                        (int(desa),)).fetchone()
+        saringan.append(("Desa", "%s (%s)" % (w["nama_desa"], w["nama_kecamatan"])
+                         if w else desa))
+    if not saringan:
+        saringan.append(("Wilayah", "Seluruh kecamatan dan desa"))
+    return saringan
+
+
+async def rekap_tipologi_pdf(request: Request):
+    """Unduh rekap tipologi sebagai PDF, sesuai saringan wilayah halaman."""
+    qp = request.query_params
+    kon = db.sambung()
+    rk = hitung_rekap_tipologi(kon, qp)
+    saringan = saringan_rekap_tipologi(kon, qp)
+    kon.close()
+
+    isi = laporan.buat_pdf_tipologi(rk, saringan, tanpa=TANPA_TIPOLOGI,
+                                    dicetak_oleh=petugas_aktif(request),
+                                    dicetak_pada=sekarang())
+    return Response(isi, media_type="application/pdf",
+                    headers={"Content-Disposition": 'inline; filename='
+                             '"rekap_tipologi_residu_belum_diserahkan_%s.pdf"' % hari_ini()})
+
+
+async def rekap_tipologi_xlsx(request: Request):
+    """Unduh rekap tipologi sebagai Excel: lembar per kelompok, per kode, keterangan.
+
+    Baris/kolom jumlah memakai rumus SUM supaya tetap benar bila petugas
+    menyunting angkanya di Excel; kolom "Jumlah berkas" tetap angka mati karena
+    satu berkas bisa membawa lebih dari satu kelompok.
+    """
+    from openpyxl import Workbook
+    from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+    from openpyxl.utils import get_column_letter as huruf
+
+    qp = request.query_params
+    kon = db.sambung()
+    rk = hitung_rekap_tipologi(kon, qp)
+    saringan = saringan_rekap_tipologi(kon, qp)
+    kon.close()
+
+    label = lambda k: "Tanpa tipologi" if k == TANPA_TIPOLOGI else k
+    kepala_font, kepala_isi = Font(bold=True, color="FFFFFF"), PatternFill("solid", fgColor="1F4E79")
+    tebal = Font(bold=True)
+    abu = PatternFill("solid", fgColor="E7ECEF")
+    garis_atas = Border(top=Side(style="thin", color="16343F"))
+    tengah = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    ribuan = "#,##0;-#,##0;-"          # nol tampil sebagai "-"
+
+    def kepala(ls, kolom):
+        ls.append(kolom)
+        for sel in ls[ls.max_row]:
+            sel.font, sel.fill, sel.alignment = kepala_font, kepala_isi, tengah
+        ls.row_dimensions[ls.max_row].height = 30
+
+    def tandai(ls, no, isi=abu, atas=False):
+        for sel in ls[no]:
+            sel.font = tebal
+            sel.fill = isi
+            if atas:
+                sel.border = garis_atas
+
+    buku = Workbook()
+
+    # ---- lembar 1: tahun x kelompok
+    ls = buku.active
+    ls.title = "Per kelompok"
+    kel, thn = rk["kelompok"], rk["tahun"]
+    kepala(ls, ["Tahun"] + [label(k) for k in kel] + ["Jumlah berkas"])
+    awal = ls.max_row + 1
+    for th in thn:
+        d = rk["per_kel"].get(th, {})
+        ls.append([th] + [d.get(k, 0) for k in kel] + [rk["berkas"][th]])
+    akhir = ls.max_row
+    if thn:
+        ls.append(["SELURUH TAHUN"] + ["=SUM(%s%d:%s%d)" % (huruf(c), awal, huruf(c), akhir)
+                                       for c in range(2, len(kel) + 3)])
+        no_total = ls.max_row
+        tandai(ls, no_total, atas=True)
+        jml = "$%s$%d" % (huruf(len(kel) + 2), no_total)
+        ls.append(["% dari berkas"] + ["=IF(%s=0,0,%s%d/%s)" % (jml, huruf(c), no_total, jml)
+                                       for c in range(2, len(kel) + 3)])
+        for sel in ls[ls.max_row][1:]:
+            sel.number_format = "0.0%"
+            sel.font = Font(italic=True, color="5D6C6F")
+        ls[ls.max_row][0].font = Font(italic=True, color="5D6C6F")
+    for baris in ls.iter_rows(min_row=awal, max_row=akhir + (1 if thn else 0)):
+        for sel in baris[1:]:
+            sel.number_format = ribuan
+        baris[-1].font = tebal
+    ls.column_dimensions["A"].width = 16
+    for c in range(2, len(kel) + 3):
+        ls.column_dimensions[huruf(c)].width = 11
+    ls.column_dimensions[huruf(len(kel) + 2)].width = 14
+    ls.freeze_panes = "B2"
+
+    # ---- lembar 2: kode x tahun, dengan subtotal kelompok
+    ls = buku.create_sheet("Per kode")
+    kepala(ls, ["Kode", "Keterangan"] + thn + ["Seluruh tahun"])
+    k_akhir = len(thn) + 2                       # kolom tahun terakhir
+    # tanpa kolom tahun (saringan kosong) tidak ada yang dijumlah
+    rumus_baris = lambda no: ("=SUM(C%d:%s%d)" % (no, huruf(k_akhir), no)) if thn else 0
+    for g in kel:
+        anak = [k for k in rk["kode"] if rk["kel_dari_kode"].get(k) == g and k != g]
+        ketg = ("Tipologi belum diisi" if g == TANPA_TIPOLOGI
+                else rk["nama"].get(g) or ("Kelompok %s" % g if anak else None))
+        d = rk["per_kel"]
+        no_g = ls.max_row + 1
+        ls.append([label(g), ketg] + [d.get(th, {}).get(g, 0) for th in thn]
+                  + [rumus_baris(no_g)])
+        if anak:
+            tandai(ls, no_g)
+        for k in anak:
+            dk = rk["per_kode"].get(k, {})
+            no = ls.max_row + 1
+            ls.append([k, rk["nama"].get(k)] + [dk.get(th, 0) for th in thn]
+                      + [rumus_baris(no)])
+            ls.cell(no, 1).alignment = Alignment(indent=2)
+    ls.append(["JUMLAH BERKAS", None] + [rk["berkas"][th] for th in thn]
+              + [rumus_baris(ls.max_row + 1)])
+    tandai(ls, ls.max_row, atas=True)
+    for baris in ls.iter_rows(min_row=2):
+        for sel in baris[2:]:
+            sel.number_format = ribuan
+        baris[-1].font = tebal
+    ls.column_dimensions["A"].width = 16
+    ls.column_dimensions["B"].width = 30
+    for c in range(3, k_akhir + 2):
+        ls.column_dimensions[huruf(c)].width = 11
+    ls.column_dimensions[huruf(k_akhir + 1)].width = 14
+    ls.freeze_panes = "C2"
+
+    # ---- lembar 3: keterangan
+    ket = buku.create_sheet("Keterangan")
+    ket.append(["Rekap Tipologi Residu PTSL Belum Diserahkan"])
+    ket["A1"].font = Font(bold=True, size=13)
+    for baris in [("Diunduh", sekarang()), ("Oleh", petugas_aktif(request) or "-")] + \
+            saringan + [
+            ("Cakupan", "Residu aktif yang belum diserahkan (berkas tidak ditemukan "
+                        "tidak ikut)"),
+            ("Jumlah berkas", rk["jumlah"]),
+            ("Berkas > 1 kelompok", rk["ganda"]),
+            ("Catatan", "Berkas yang membawa kode dari lebih dari satu kelompok "
+                        "(mis. T2.2 dan T3.3) terhitung di tiap kelompoknya, jadi "
+                        "jumlah kolom kelompok bisa melebihi Jumlah berkas.")]:
+        ket.append(list(baris))
+    for sel in ket["A"][1:]:
+        sel.font = tebal
+        sel.alignment = Alignment(vertical="top")
+    ket["B%d" % ket.max_row].alignment = Alignment(wrap_text=True, vertical="top")
+    ket.column_dimensions["A"].width = 22
+    ket.column_dimensions["B"].width = 80
+
+    wadah = io.BytesIO()
+    buku.save(wadah)
+    return Response(
+        wadah.getvalue(),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": 'attachment; filename='
+                 '"rekap_tipologi_residu_belum_diserahkan_%s.xlsx"' % hari_ini()})
+
+
+async def rekap_tipologi_csv(request: Request):
+    """Unduh rekap tipologi: satu baris per tahun, kolom per kelompok dan kode."""
+    qp = request.query_params
+    kon = db.sambung()
+    rk = hitung_rekap_tipologi(kon, qp)
+    kon.close()
+
+    kel = rk["kelompok"]
+    kd = [k for k in rk["kode"] if k not in kel]   # kode anak saja, mis. T1.1
+    keluar = [";".join(["Tahun", "Jumlah_Berkas"] + kel + kd)]
+    for t in rk["tahun"] + ["SELURUH TAHUN"]:
+        if t == "SELURUH TAHUN":
+            isi = [rk["jumlah"]] + [rk["total_kel"][k] for k in kel] \
+                + [rk["total_kode"][k] for k in kd]
+        else:
+            isi = [rk["berkas"][t]] + [rk["per_kel"].get(t, {}).get(k, 0) for k in kel] \
+                + [rk["per_kode"].get(k, {}).get(t, 0) for k in kd]
+        keluar.append(";".join(sel_csv(v) for v in [t] + isi))
+
+    isi_csv = "﻿" + "\r\n".join(keluar) + "\r\n"
+    return Response(isi_csv.encode("utf-8"), media_type="text/csv; charset=utf-8",
+                    headers={"Content-Disposition": 'attachment; filename='
+                             '"rekap_tipologi_residu_belum_diserahkan_%s.csv"' % hari_ini()})
 
 
 # ------------------------------------------------ laporan penyerahan residu
@@ -3194,6 +3531,10 @@ rute = [
     Route("/residu/centang", centang_blanko, methods=["POST"]),
     Route("/residu/{residu_id:int}/simpan", simpan_residu, methods=["POST"]),
     Route("/residu/tipologi", simpan_tipologi, methods=["POST"]),
+    Route("/residu/tipologi/rekap", rekap_tipologi),
+    Route("/residu/tipologi/rekap.csv", rekap_tipologi_csv),
+    Route("/residu/tipologi/rekap.pdf", rekap_tipologi_pdf),
+    Route("/residu/tipologi/rekap.xlsx", rekap_tipologi_xlsx),
     Route("/residu/catatan", halaman_catatan),
     Route("/residu/catatan/simpan", simpan_catatan_baku, methods=["POST"]),
     Route("/residu/cocokkan", cocokkan_residu, methods=["POST"]),

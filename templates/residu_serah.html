@@ -3,15 +3,12 @@
 {% block isi %}
 
 <h1>Laporan Penyerahan Residu</h1>
-<p class="jelas">
-  Jumlah sertipikat residu yang sudah diserahkan ke pemohon pada periode tertentu.
-  Patokannya <em>tanggal serah</em> yang diisi petugas di dialog Ubah pada halaman
-  Daftar residu.
-</p>
+<p class="jelas">Berapa sertipikat residu yang diserahkan ke pemohon pada satu periode.</p>
 
 <div class="tab">
   <a href="/residu">Daftar residu</a>
   <a href="/residu/rekap">Rekap pengecekan blanko</a>
+  <a href="/residu/tipologi/rekap">Rekap tipologi</a>
   <a href="/residu/penyerahan" class="aktif">Laporan penyerahan</a>
 </div>
 
@@ -33,68 +30,72 @@
         {% endfor %}
       </select>
     </div>
-    <div class="bidang-isian">
-      <label for="petugas">Petugas</label>
-      <select id="petugas" name="petugas">
-        <option value="">Semua petugas</option>
-        {% for p in daftar_petugas %}
-          <option value="{{ p }}" {{ 'selected' if qp.get('petugas') == p }}>{{ p }}</option>
-        {% endfor %}
-      </select>
+    <div class="saring-aksi">
+      <button type="submit">Terapkan</button>
+      <a href="/residu/penyerahan" class="tombol kedua">Reset</a>
+      <details class="menu-unduh">
+        <summary class="tombol kedua">Unduh</summary>
+        <div class="menu-unduh-isi">
+          <a href="/residu/penyerahan.pdf{{ ('?' ~ kueri) if kueri }}" target="_blank" rel="noopener">PDF<small>Laporan siap cetak untuk pimpinan</small></a>
+          <a href="/residu/penyerahan.csv{{ ('?' ~ kueri) if kueri }}">CSV<small>Daftar sertipikat yang diserahkan</small></a>
+        </div>
+      </details>
     </div>
-    <div class="bidang-isian">
-      <label for="tahun">Tahun anggaran</label>
-      <select id="tahun" name="tahun">
-        <option value="">Semua tahun</option>
-        {% for t in semua_tahun %}
-          <option value="{{ t.tahun }}" {{ 'selected' if qp.get('tahun') == t.tahun }}>{{ t.tahun }}</option>
-        {% endfor %}
-      </select>
+    <div class="isian-lebar periode-cepat" style="flex-basis:100%">
+      {% for p in periode_cepat %}
+        <a class="tombol kecil {{ '' if p.aktif else 'kedua' }}"
+           href="/residu/penyerahan?dari={{ p.dari }}&amp;sampai={{ p.sampai }}{{ sisa }}">{{ p.label }}</a>
+      {% endfor %}
     </div>
-    <div class="bidang-isian">
-      <label for="kecamatan">Kecamatan</label>
-      <select id="kecamatan" name="kecamatan">
-        <option value="">Semua</option>
-        {% for k in kecamatan %}
-          <option value="{{ k.nama_kecamatan }}" {{ 'selected' if kec_terpilih == k.nama_kecamatan }}>{{ k.nama_kecamatan }}</option>
-        {% endfor %}
-      </select>
-    </div>
-    <div class="bidang-isian">
-      <label for="desa">Desa</label>
-      <select id="desa" name="desa">
-        <option value="">Semua</option>
-        {% for d in desa_tampil %}
-          <option value="{{ d.id }}" {{ 'selected' if qp.get('desa') == d.id | string }}>
-            {{ d.nama_desa }}{{ '' if kec_terpilih else ' (' ~ d.nama_kecamatan ~ ')' }}
-          </option>
-        {% endfor %}
-      </select>
-    </div>
-    <div class="bidang-isian">
-      <label>&nbsp;</label>
-      <div style="display:flex; gap:6px; flex-wrap:wrap">
-        <button type="submit">Terapkan</button>
-        <a href="/residu/penyerahan" class="tombol kedua">Reset</a>
-        <a class="tombol kedua" href="/residu/penyerahan.pdf{{ ('?' ~ kueri) if kueri }}"
-           target="_blank" rel="noopener" title="Laporan siap cetak untuk pimpinan">Unduh PDF</a>
-        <a class="tombol kedua" href="/residu/penyerahan.csv{{ ('?' ~ kueri) if kueri }}">Unduh CSV</a>
+    {% set ns = namespace(n=0) %}
+    {% for k in ['petugas', 'tahun', 'kecamatan', 'desa'] %}{% if qp.get(k) %}{% set ns.n = ns.n + 1 %}{% endif %}{% endfor %}
+    <details class="saring-lain"{{ ' open' if ns.n }}>
+      <summary>Saringan lain{% if ns.n %} <span class="tanda biru">{{ ns.n }} aktif</span>{% endif %}</summary>
+      <div class="saring-lain-isi">
+        <div class="bidang-isian">
+          <label for="petugas">Petugas</label>
+          <select id="petugas" name="petugas">
+            <option value="">Semua petugas</option>
+            {% for p in daftar_petugas %}
+              <option value="{{ p }}" {{ 'selected' if qp.get('petugas') == p }}>{{ p }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="bidang-isian">
+          <label for="tahun">Tahun anggaran</label>
+          <select id="tahun" name="tahun">
+            <option value="">Semua tahun</option>
+            {% for t in semua_tahun %}
+              <option value="{{ t.tahun }}" {{ 'selected' if qp.get('tahun') == t.tahun }}>{{ t.tahun }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="bidang-isian">
+          <label for="kecamatan">Kecamatan</label>
+          <select id="kecamatan" name="kecamatan">
+            <option value="">Semua</option>
+            {% for k in kecamatan %}
+              <option value="{{ k.nama_kecamatan }}" {{ 'selected' if kec_terpilih == k.nama_kecamatan }}>{{ k.nama_kecamatan }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="bidang-isian">
+          <label for="desa">Desa</label>
+          <select id="desa" name="desa">
+            <option value="">Semua</option>
+            {% for d in desa_tampil %}
+              <option value="{{ d.id }}" {{ 'selected' if qp.get('desa') == d.id | string }}>
+                {{ d.nama_desa }}{{ '' if kec_terpilih else ' (' ~ d.nama_kecamatan ~ ')' }}
+              </option>
+            {% endfor %}
+          </select>
+        </div>
       </div>
-    </div>
-    <div class="bidang-isian isian-lebar">
-      <label>Periode cepat</label>
-      <div style="display:flex; gap:6px; flex-wrap:wrap">
-        {% for p in periode_cepat %}
-          <a class="tombol kecil {{ '' if p.aktif else 'kedua' }}"
-             href="/residu/penyerahan?dari={{ p.dari }}&amp;sampai={{ p.sampai }}{{ sisa }}">{{ p.label }}</a>
-        {% endfor %}
-      </div>
-      <p class="kecil redup" style="margin:8px 0 0">
-        Periode terpakai: <strong>{{ teks_periode }}</strong>.
-        {% if batas_awal %}Tanggal serah yang tercatat berkisar
-          {{ batas_awal | tanggal }} s/d {{ batas_akhir | tanggal }}.{% endif %}
-      </p>
-    </div>
+    </details>
+    <p class="petunjuk petunjuk-cari">
+      Periode: <strong>{{ teks_periode }}</strong>{% if batas_awal %}. Tanggal serah tercatat
+      {{ batas_awal | tanggal }} s/d {{ batas_akhir | tanggal }}{% endif %}
+    </p>
   </form>
 </div>
 
@@ -104,16 +105,8 @@
     <div class="label">Diserahkan pada periode</div>
   </div>
   <div class="angka-kotak">
-    <div class="nilai">{{ (ringkas.hari or 0) | angka }}</div>
-    <div class="label">Hari ada penyerahan</div>
-  </div>
-  <div class="angka-kotak">
     <div class="nilai">{{ '%.1f' % (ringkas.diserahkan / ringkas.hari) if ringkas.hari else '—' }}</div>
-    <div class="label">Rata-rata per hari</div>
-  </div>
-  <div class="angka-kotak">
-    <div class="nilai">{{ (ringkas.desa or 0) | angka }}</div>
-    <div class="label">Desa</div>
+    <div class="label">Rata-rata per hari kerja</div>
   </div>
   <div class="angka-kotak ungu">
     <div class="nilai">{{ lingkup.sudah | angka }}</div>
@@ -124,29 +117,38 @@
     <div class="label">Belum diserahkan</div>
   </div>
 </div>
+<dl class="angka-lain">
+  <div><dt>Hari ada penyerahan</dt><dd>{{ (ringkas.hari or 0) | angka }}</dd></div>
+  <div><dt>Desa</dt><dd>{{ (ringkas.desa or 0) | angka }}</dd></div>
+  <div><dt>Progres seluruh residu</dt><dd>{{ '%.1f' % persen(lingkup.sudah, lingkup.jumlah) }}%</dd></div>
+</dl>
 
-<p class="kecil redup" style="margin:10px 0 0">
-  Dua kotak terakhir menghitung seluruh residu aktif pada tahun/wilayah terpilih
-  ({{ lingkup.jumlah | angka }} baris), tanpa batas periode, sebagai pembanding progres.
-</p>
+<details class="bantuan">
+  <summary>Cara membaca laporan ini</summary>
+  <div class="bantuan-isi">
+    <ul>
+      <li>Patokannya <em>tanggal serah</em> yang diisi di dialog Ubah pada halaman Daftar residu.</li>
+      <li><em>Sudah diserahkan (seluruhnya)</em> dan <em>Belum diserahkan</em> menghitung seluruh residu aktif pada tahun/wilayah terpilih ({{ lingkup.jumlah | angka }} baris), tanpa batas periode.</li>
+      <li>Di tab <em>Per desa</em>, total, sudah, dan sisa juga dihitung tanpa batas periode, jadi progres desa tetap terbaca walau periodenya dipersempit.</li>
+      <li>Tombol <em>Lihat</em> di tab periode mempersempit laporan ke baris itu saja.</li>
+    </ul>
+  </div>
+</details>
 
 {% if lingkup.tanpa_tanggal %}
   <div class="pesan awas" style="margin-top:16px">
     {{ lingkup.tanpa_tanggal | angka }} residu ditandai <strong>sudah diserahkan</strong>
-    tetapi tanggal serahnya kosong (umumnya hasil impor), sehingga tidak masuk periode
-    mana pun di laporan ini. Isi tanggal serahnya lewat dialog Ubah di
-    <a href="/residu?serah=sudah">Daftar residu</a> agar ikut terhitung.
+    tetapi tanggal serahnya kosong, jadi tidak masuk periode mana pun.
+    <a href="/residu?serah=sudah">Isi tanggal serahnya di Daftar residu</a>.
   </div>
 {% endif %}
 
+<div class="panel-tab" data-panel-tab="Bagian laporan">
+
 {# ------------------------------------------------------------ tabel periodik #}
-<div class="kartu rapat" style="margin-top:18px">
-  <div style="padding:16px 16px 0">
-    <h2>Penyerahan per {{ {'hari': 'hari', 'minggu': 'minggu', 'bulan': 'bulan'}[kelompok] }}</h2>
-    <p class="kecil redup" style="margin:4px 0 0">
-      Ganti pengelompokannya lewat isian <em>Kelompokkan per</em> di atas. Tombol
-      <em>Lihat</em> mempersempit laporan ke baris itu saja.
-    </p>
+<section class="kartu rapat panel" id="per-periode" data-judul="Per {{ kelompok }}" data-hitung="{{ periodik | length }}">
+  <div class="panel-kepala">
+    <h2>Penyerahan per {{ kelompok }}</h2>
   </div>
   <div class="gulir">
     <table>
@@ -194,15 +196,12 @@
       </tbody>
     </table>
   </div>
-</div>
+</section>
 
 {# ------------------------------------------------------ ringkasan per petugas #}
-<div class="kartu rapat" style="margin-top:18px">
-  <div style="padding:16px 16px 0">
+<section class="kartu rapat panel" id="per-petugas" data-judul="Per petugas" data-hitung="{{ per_petugas | length }}">
+  <div class="panel-kepala">
     <h2>Per petugas</h2>
-    <p class="kecil redup" style="margin:4px 0 0">
-      Petugas yang tercatat pada baris residu saat penyerahan disimpan.
-    </p>
   </div>
   <div class="gulir">
     <table>
@@ -234,18 +233,12 @@
       </tbody>
     </table>
   </div>
-</div>
+</section>
 
 {# ------------------------------------------------- per desa dengan progres #}
-<div class="kartu rapat" style="margin-top:18px">
-  <div style="padding:16px 16px 0">
+<section class="kartu rapat panel" id="per-desa" data-judul="Per desa" data-hitung="{{ per_desa | length }}">
+  <div class="panel-kepala">
     <h2>Per desa dan kecamatan</h2>
-    <p class="kecil redup" style="margin:4px 0 0">
-      Hanya desa yang ada penyerahannya pada periode ini. <em>Total residu</em>,
-      <em>Sudah diserahkan</em>, dan <em>Sisa</em> menghitung seluruh residu aktif di
-      desa itu (tanpa batas periode), jadi progresnya tetap terbaca walau periodenya
-      dipersempit.
-    </p>
   </div>
   <div class="gulir">
     <table>
@@ -304,19 +297,18 @@
       </tbody>
     </table>
   </div>
-</div>
+</section>
 
 {# ------------------------------------------------- daftar sertipikat diserahkan #}
-<div class="kartu rapat" style="margin-top:18px">
-  <div style="padding:16px 16px 0">
+<section class="kartu rapat panel" id="daftar" data-judul="Daftar sertipikat" data-hitung="{{ (ringkas.diserahkan or 0) | angka }}">
+  <div class="panel-kepala">
     <h2>Daftar sertipikat yang diserahkan</h2>
-    <p class="kecil redup" style="margin:4px 0 0">
+    <p class="kecil redup">
       Terbaru di atas.
       {% if (ringkas.diserahkan or 0) > batas_rincian %}
         Layar hanya menampilkan {{ batas_rincian | angka }} baris pertama dari
         {{ ringkas.diserahkan | angka }}; unduh CSV untuk daftar lengkapnya.
       {% else %}
-        Isi tabel ini sama dengan yang terunduh lewat <em>Unduh CSV</em>.
       {% endif %}
     </p>
   </div>
@@ -354,9 +346,11 @@
       </tbody>
     </table>
   </div>
-</div>
+</section>
 
 {# daftar desa lengkap, dipakai untuk menyusun ulang pilihan saat kecamatan diganti #}
+</div>{# /panel-tab #}
+
 <script id="data-desa" type="application/json">{{ desa | tojson }}</script>
 <script>
 (function () {

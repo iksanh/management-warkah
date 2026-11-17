@@ -4,11 +4,7 @@
 
 {% set th = qp.get('tahun') %}
 <h1>Residu PTSL{{ ' ' ~ th if th }}</h1>
-<p class="jelas">
-  Sertipikat hasil PTSL yang sudah terbit tetapi belum diserahkan ke pemohon,
-  dipisah per tahun anggaran mengikuti lembar berkas asalnya.
-  Nomor haknya dicocokkan satu-lawan-satu dengan data bidang di katalog.
-</p>
+<p class="jelas">Sertipikat PTSL yang sudah terbit tetapi belum diserahkan ke pemohon.</p>
 
 {# potongan tautan yang menjaga saringan lain tetap terpasang:
    sisa/ekor tanpa tahun (untuk tab tahun), sisa_tampil/ekor_tampil tanpa
@@ -96,6 +92,11 @@
           <select id="tipologi" name="tipologi">
             <option value="">Semua</option>
             {% for t in daftar_tipologi %}
+              {% if t.kelompok != t.kode and (loop.first or loop.previtem.kelompok != t.kelompok) %}
+              <option value="{{ t.kelompok }}" {{ 'selected' if qp.get('tipologi') == t.kelompok }}>
+                {{ t.kelompok }} — seluruh kelompok ({{ hitung_tipologi.get(t.kelompok, 0) }})
+              </option>
+              {% endif %}
               <option value="{{ t.kode }}" {{ 'selected' if qp.get('tipologi') == t.kode }}>
                 {{ t.kode }}{{ ' — ' ~ t.nama if t.nama }} ({{ hitung_tipologi.get(t.kode, 0) }})
               </option>
@@ -158,12 +159,14 @@
 
   {% set kueri = ('?' ~ request.url.query) if request.url.query else '' %}
   <div class="bilah-aksi">
-    <span class="kecil redup">Unduh sesuai saringan:</span>
-    <a class="tombol kecil kedua" href="/residu.xlsx{{ kueri }}"
-       title="Data residu beserta catatannya">Excel</a>
-    <a class="tombol kecil kedua" href="/residu.pdf{{ kueri }}" target="_blank" rel="noopener"
-       title="Daftar residu siap cetak untuk pimpinan">PDF</a>
-    <a class="tombol kecil kedua" href="/residu.csv{{ kueri }}">CSV</a>
+    <details class="menu-unduh kiri">
+      <summary class="tombol kecil kedua">Unduh sesuai saringan</summary>
+      <div class="menu-unduh-isi">
+        <a href="/residu.xlsx{{ kueri }}">Excel<small>Data residu beserta catatannya</small></a>
+        <a href="/residu.pdf{{ kueri }}" target="_blank" rel="noopener">PDF<small>Daftar siap cetak untuk pimpinan</small></a>
+        <a href="/residu.csv{{ kueri }}">CSV<small>Data mentah untuk diolah</small></a>
+      </div>
+    </details>
     {% if admin %}
       <form method="post" action="/residu/cocokkan" class="aksi-kanan">
         <input type="hidden" name="kembali_ke" value="{{ kembali_ke }}">
@@ -266,27 +269,17 @@
     <div class="nilai" data-ringkas="diserahkan">{{ (ringkas.diserahkan or 0) | angka }}</div>
     <div class="label">Sudah diserahkan</div>
   </div>
-  <div class="angka-kotak ungu">
-    <div class="nilai" data-ringkas="cocok">{{ (ringkas.cocok or 0) | angka }}</div>
-    <div class="label">Cocok dengan bidang</div>
-  </div>
   <div class="angka-kotak merah">
-    <div class="nilai" data-ringkas="belum_cocok">{{ (ringkas.jumlah - (ringkas.cocok or 0)) | angka }}</div>
-    <div class="label">Belum tercocokkan</div>
-  </div>
-  <div class="angka-kotak">
-    <div class="nilai" data-ringkas="ditindaklanjuti">{{ (ringkas.ditindaklanjuti or 0) | angka }}</div>
-    <div class="label">Sudah ditindaklanjuti</div>
-  </div>
-  <div class="angka-kotak hijau">
-    <div class="nilai" data-ringkas="blanko_ada">{{ (ringkas.blanko_ada or 0) | angka }}</div>
-    <div class="label">Blanko ada</div>
-  </div>
-  <div class="angka-kotak">
     <div class="nilai" data-ringkas="blanko_belum">{{ (ringkas.blanko_belum or 0) | angka }}</div>
     <div class="label">Blanko belum dicek</div>
   </div>
 </div>
+<dl class="angka-lain">
+  <div><dt>Blanko ada</dt><dd data-ringkas="blanko_ada">{{ (ringkas.blanko_ada or 0) | angka }}</dd></div>
+  <div><dt>Sudah ditindaklanjuti</dt><dd data-ringkas="ditindaklanjuti">{{ (ringkas.ditindaklanjuti or 0) | angka }}</dd></div>
+  <div><dt>Cocok dengan bidang</dt><dd data-ringkas="cocok">{{ (ringkas.cocok or 0) | angka }}</dd></div>
+  <div><dt>Belum tercocokkan</dt><dd data-ringkas="belum_cocok">{{ (ringkas.jumlah - (ringkas.cocok or 0)) | angka }}</dd></div>
+</dl>
 
 {# daftar desa lengkap, dipakai untuk menyusun ulang pilihan saat kecamatan diganti #}
 <script id="data-desa" type="application/json">{{ desa | tojson }}</script>
@@ -355,10 +348,7 @@
     </button>
   </div>
   <div class="petunjuk-centang">
-    Centang <strong>Blanko</strong> bila blanko sertipikatnya memang ada, biarkan
-    kosong bila tidak ada, lalu Simpan. Hanya baris yang Anda ubah yang disimpan.
-    Ini mencatat kondisi yang ada apa adanya — nomor seri blanko di berkas tidak
-    dipakai sebagai pembanding.
+    Centang <strong>Blanko</strong> bila blankonya ada, lalu Simpan. Hanya baris yang diubah yang disimpan.
   </div>
 </div>
 <div id="wadah-ubah" hidden></div>
@@ -1054,11 +1044,10 @@ document.querySelectorAll('.modal-rinci').forEach(function (dialog) {
 })();
 </script>
 
-<div class="kartu">
-  <h2>Rekap per tahun anggaran</h2>
+<details class="kartu kartu-lipat">
+  <summary><h2>Rekap per tahun anggaran</h2><span class="kecil redup">Jumlah, diserahkan, dan pencocokan per tahun</span></summary>
   <p class="kecil redup" style="margin-top:0">
-    Angka mengikuti saringan yang sedang aktif, kecuali tahun. Klik tahunnya
-    untuk membuka daftarnya.
+    Angka mengikuti saringan yang sedang aktif, kecuali tahun.
   </p>
   <div class="gulir">
     <table>
@@ -1106,14 +1095,14 @@ document.querySelectorAll('.modal-rinci').forEach(function (dialog) {
       {% endif %}
     </table>
   </div>
-</div>
+</details>
 
-<div class="kartu">
-  <h2>Kode tipologi permasalahan</h2>
+<details class="kartu kartu-lipat">
+  <summary><h2>Keterangan kode tipologi</h2><span class="kecil redup">{{ 'Isi arti tiap kode T1.1, T2.2, …' if admin else 'Arti tiap kode T1.1, T2.2, …' }}</span></summary>
   <p class="kecil redup" style="margin-top:0">
-    Keterangan tiap kode tidak ikut tertulis di berkas Excel, jadi diisi sendiri di
-    sini. Angka di belakang kode adalah jumlah baris residu yang memakainya
-    mengikuti saringan yang sedang aktif.
+    Keterangan kode tidak ikut tertulis di berkas Excel, jadi diisi di sini. Jumlah
+    mengikuti saringan yang sedang aktif. Sebaran lengkapnya ada di
+    <a href="/residu/tipologi/rekap">Rekap tipologi</a>.
   </p>
   <form method="post" action="/residu/tipologi">
     <input type="hidden" name="kembali_ke" value="{{ kembali_ke }}">
@@ -1146,6 +1135,6 @@ document.querySelectorAll('.modal-rinci').forEach(function (dialog) {
       <p style="margin:12px 0 0"><button type="submit" class="hijau">Simpan keterangan</button></p>
     {% endif %}
   </form>
-</div>
+</details>
 
 {% endblock %}

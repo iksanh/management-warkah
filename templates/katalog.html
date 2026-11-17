@@ -220,13 +220,18 @@
   </div>
   <div class="petunjuk-centang">
     Centang <strong>BT</strong> bila buku tanahnya ada dan <strong>SU</strong> bila surat
-    ukurnya ada, lalu Simpan. Hanya baris yang Anda ubah yang disimpan.
-    Status <em>(otomatis)</em> = Lengkap bila keduanya tercentang, selain itu Tidak Lengkap.
-    {% if admin %}
-      Kolom <strong>Residu</strong> khusus Admin: centang bila nomor hak itu ternyata masih
-      residu tetapi belum tercatat di berkas RESIDU PTSL. Barisnya langsung muncul di halaman
-      Residu dan bisa dilengkapi di sana.
-    {% endif %}
+    ukurnya ada, lalu Simpan. Hanya baris yang diubah yang disimpan.
+    <details class="bantuan">
+      <summary>Selengkapnya</summary>
+      <div class="bantuan-isi">
+        <p>Status <em>(otomatis)</em> = Lengkap bila BT dan SU tercentang, selain itu Tidak Lengkap.</p>
+        {% if admin %}
+        <p>Kolom <strong>Residu</strong> (khusus Admin): centang bila nomor hak itu ternyata masih
+          residu tetapi belum tercatat di berkas RESIDU PTSL. Barisnya langsung muncul di halaman
+          Residu dan bisa dilengkapi di sana.</p>
+        {% endif %}
+      </div>
+    </details>
   </div>
 </div>
 
