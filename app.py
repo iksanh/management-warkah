@@ -3274,6 +3274,35 @@ async def opname_buka(request: Request):
     return RedirectResponse("/opname/%d?tersimpan=1" % tahun, status_code=303)
 
 
+async def opname_ubah_target(request: Request):
+    """Admin: koreksi target/realisasi K1 tahun yang sudah dibuka.
+
+    Hanya menyentuh opname_tahun, tidak pernah tabel residu — aman dijalankan
+    sementara petugas lain sedang aktif mengisi baris opname tahun yang sama.
+    """
+    if not is_admin(request):
+        return tolak(request, "Mengubah target/realisasi K1 hanya bisa dilakukan oleh Admin.")
+    tahun = request.path_params["tahun"]
+    if tahun not in TAHUN_OPNAME:
+        return tolak(request, "Tahun opname tidak sah.")
+    kon = db.sambung()
+    if opname_info(kon, tahun) is None:
+        kon.close()
+        return tolak(request, "Tahun ini belum dibuka untuk opname.")
+    form = await request.form()
+
+    def angka(nama):
+        t = (form.get(nama) or "").strip().replace(".", "")
+        return int(t) if t.isdigit() else None
+    kon.execute("UPDATE opname_tahun SET target_k1 = ?, realisasi_k1 = ? WHERE tahun = ?",
+                (angka("target_k1"), angka("realisasi_k1"), tahun))
+    tulis_log(kon, petugas_aktif(request), "Ubah target/realisasi opname %d" % tahun,
+              None, None)
+    kon.commit()
+    kon.close()
+    return RedirectResponse("/opname?tersimpan=1", status_code=303)
+
+
 async def opname_halaman_tahun(request: Request):
     """Borang isian + daftar bersih baris opname satu tahun."""
     tahun = request.path_params["tahun"]
@@ -3844,6 +3873,7 @@ rute = [
     Route("/residu/impor/jalankan", jalankan_impor_residu, methods=["POST"]),
     Route("/opname", opname_beranda),
     Route("/opname/buka", opname_buka, methods=["POST"]),
+    Route("/opname/{tahun:int}/ubah-target", opname_ubah_target, methods=["POST"]),
     Route("/opname/export.xlsx", opname_export_xlsx),
     Route("/opname/cari.json", opname_cari_json),
     Route("/opname/{tahun:int}", opname_halaman_tahun),
