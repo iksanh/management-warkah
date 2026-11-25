@@ -3419,9 +3419,17 @@ async def opname_beranda(request: Request):
     """Daftar tahun opname: dibuka atau belum, dengan angka target/realisasi."""
     kon = db.sambung()
     dibuka = {r["tahun"]: r for r in kon.execute("SELECT * FROM opname_tahun")}
-    masuk = {r["tahun"]: r["n"] for r in kon.execute(
-        "SELECT tahun, COUNT(*) n FROM residu WHERE sumber = ? GROUP BY tahun",
-        (SUMBER_OPNAME,))}
+    # residu.tahun berkolom TEXT (format bebas dari impor lama), jadi disamakan
+    # ke int di sini supaya cocok dengan kunci TAHUN_OPNAME — tanpa ini,
+    # GROUP BY mengembalikan "2019" (teks) yang tidak pernah == 2019 (int)
+    masuk = {}
+    for r in kon.execute(
+            "SELECT tahun, COUNT(*) n FROM residu WHERE sumber = ? GROUP BY tahun",
+            (SUMBER_OPNAME,)):
+        try:
+            masuk[int(r["tahun"])] = r["n"]
+        except (TypeError, ValueError):
+            pass
     kon.close()
     tahun_list = [{"tahun": t, "dibuka": dibuka.get(t), "jumlah": masuk.get(t, 0)}
                   for t in TAHUN_OPNAME]
@@ -3455,6 +3463,35 @@ async def opname_buka(request: Request):
         kon.commit()
     kon.close()
     return RedirectResponse("/opname/%d?tersimpan=1" % tahun, status_code=303)
+
+
+async def opname_ubah_target(request: Request):
+    """Admin: koreksi target/realisasi K1 tahun yang sudah dibuka.
+
+    Hanya menyentuh opname_tahun, tidak pernah tabel residu — aman dijalankan
+    sementara petugas lain sedang aktif mengisi baris opname tahun yang sama.
+    """
+    if not is_admin(request):
+        return tolak(request, "Mengubah target/realisasi K1 hanya bisa dilakukan oleh Admin.")
+    tahun = request.path_params["tahun"]
+    if tahun not in TAHUN_OPNAME:
+        return tolak(request, "Tahun opname tidak sah.")
+    kon = db.sambung()
+    if opname_info(kon, tahun) is None:
+        kon.close()
+        return tolak(request, "Tahun ini belum dibuka untuk opname.")
+    form = await request.form()
+
+    def angka(nama):
+        t = (form.get(nama) or "").strip().replace(".", "")
+        return int(t) if t.isdigit() else None
+    kon.execute("UPDATE opname_tahun SET target_k1 = ?, realisasi_k1 = ? WHERE tahun = ?",
+                (angka("target_k1"), angka("realisasi_k1"), tahun))
+    tulis_log(kon, petugas_aktif(request), "Ubah target/realisasi opname %d" % tahun,
+              None, None)
+    kon.commit()
+    kon.close()
+    return RedirectResponse("/opname?tersimpan=1", status_code=303)
 
 
 async def opname_halaman_tahun(request: Request):
@@ -3616,6 +3653,31 @@ async def opname_hapus_baris(request: Request):
     kon.commit()
     kon.close()
     return JSONResponse({"ok": True})
+
+
+async def opname_rekap_petugas(request: Request):
+    """Rekap per petugas: berapa baris opname yang sudah diinput tiap orang.
+
+    Mengikuti susunan kolom "Per petugas" di Rekap Pengecekan Blanko, tetapi
+    sumber datanya baris hasil Opname Fisik Residu (bukan centang blanko).
+    """
+    kon = db.sambung()
+    baris = kon.execute(
+        "SELECT COALESCE(r.diubah_oleh, '(tanpa nama)') petugas, "
+        "COUNT(*) jumlah, COUNT(DISTINCT r.tahun) tahun, "
+        "COUNT(DISTINCT r.wilayah_id) desa, "
+        "COUNT(DISTINCT w.nama_kecamatan) kecamatan, "
+        "COUNT(DISTINCT substr(r.diubah_pada, 1, 10)) hari, "
+        "MIN(substr(r.diubah_pada, 1, 10)) tgl_awal, "
+        "MAX(substr(r.diubah_pada, 1, 10)) tgl_akhir "
+        "FROM residu r LEFT JOIN wilayah w ON w.id = r.wilayah_id "
+        "WHERE r.sumber = ? GROUP BY petugas ORDER BY jumlah DESC, petugas",
+        (SUMBER_OPNAME,)).fetchall()
+    total = kon.execute("SELECT COUNT(*) n FROM residu WHERE sumber = ?",
+                        (SUMBER_OPNAME,)).fetchone()["n"]
+    kon.close()
+    return templates.TemplateResponse(request, "opname_rekap.html", konteks(
+        request, baris=baris, total=total))
 
 
 async def opname_export_xlsx(request: Request):
@@ -4029,8 +4091,10 @@ rute = [
     Route("/residu/impor/jalankan", jalankan_impor_residu, methods=["POST"]),
     Route("/opname", opname_beranda),
     Route("/opname/buka", opname_buka, methods=["POST"]),
+    Route("/opname/{tahun:int}/ubah-target", opname_ubah_target, methods=["POST"]),
     Route("/opname/export.xlsx", opname_export_xlsx),
     Route("/opname/cari.json", opname_cari_json),
+    Route("/opname/rekap", opname_rekap_petugas),
     Route("/opname/{tahun:int}", opname_halaman_tahun),
     Route("/opname/{tahun:int}/baris.json", opname_baris_json),
     Route("/opname/{tahun:int}/baris", opname_simpan_baris, methods=["POST"]),

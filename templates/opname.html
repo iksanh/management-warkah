@@ -13,6 +13,13 @@
   <div class="pesan sukses">Tersimpan.</div>
 {% endif %}
 
+<div class="bilah-aksi">
+  <a href="/opname/export.xlsx" class="tombol kecil kedua">
+    Unduh matriks tipologi (Excel, semua tahun)
+  </a>
+  <a href="/opname/rekap" class="tombol kecil kedua">Rekap petugas</a>
+</div>
+
 <div class="kartu rapat">
   <div class="gulir">
     <table>
@@ -50,6 +57,14 @@
             <td class="tengah">
               {% if t.dibuka %}
                 <a href="/opname/{{ t.tahun }}" class="tombol kecil kedua">Buka &rsaquo;</a>
+                {% if admin %}
+                  <button type="button" class="tombol kecil kedua ubah-target"
+                          data-tahun="{{ t.tahun }}"
+                          data-target-k1="{{ t.dibuka.target_k1 if t.dibuka.target_k1 is not none else '' }}"
+                          data-realisasi-k1="{{ t.dibuka.realisasi_k1 if t.dibuka.realisasi_k1 is not none else '' }}">
+                    Ubah target
+                  </button>
+                {% endif %}
               {% else %}
                 <button type="button" class="tombol kecil mulai-opname" data-tahun="{{ t.tahun }}">
                   Mulai Opname
@@ -103,6 +118,46 @@
   </form>
 </dialog>
 
+{% if admin %}
+<dialog class="modal-rinci" id="dialog-ubah-target" aria-labelledby="judul-ubah-target">
+  <form method="post" id="borang-ubah-target">
+    <div class="kepala-modal">
+      <div class="kepala-modal-teks">
+        <h2 id="judul-ubah-target">Ubah Target/Realisasi Tahun <span id="teks-tahun-ubah"></span></h2>
+      </div>
+      <div class="kepala-modal-alat">
+        <button type="button" class="tombol-alat tutup-modal-ubah" aria-label="Tutup" title="Tutup (Esc)">
+          <svg class="ikon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>
+        </button>
+      </div>
+    </div>
+    <div class="badan-modal">
+      <p class="petunjuk">
+        Hanya mengubah angka target/realisasi yang dilaporkan untuk tahun ini —
+        tidak menyentuh baris opname yang sedang/sudah diisi.
+      </p>
+      <div class="baris-borang">
+        <div class="bidang-isian">
+          <label for="ubah-target-k1">Target K1</label>
+          <input type="text" id="ubah-target-k1" name="target_k1" inputmode="numeric" placeholder="mis. 150">
+        </div>
+        <div class="bidang-isian">
+          <label for="ubah-realisasi-k1">Realisasi K1 (dilaporkan)</label>
+          <input type="text" id="ubah-realisasi-k1" name="realisasi_k1" inputmode="numeric" placeholder="mis. 40">
+        </div>
+      </div>
+    </div>
+    <div class="kaki-modal">
+      <div class="kaki-kabar"></div>
+      <div class="kaki-tombol">
+        <button type="button" class="tombol kedua tutup-modal-ubah">Batal</button>
+        <button type="submit" class="hijau">Simpan</button>
+      </div>
+    </div>
+  </form>
+</dialog>
+{% endif %}
+
 <script>
 (function () {
   var dialog = document.getElementById('dialog-buka-tahun');
@@ -123,6 +178,31 @@
   dialog.querySelectorAll('.tutup-modal').forEach(function (btn) {
     btn.addEventListener('click', tutup);
   });
+
+  var dialogUbah = document.getElementById('dialog-ubah-target');
+  if (dialogUbah) {
+    var borangUbah = document.getElementById('borang-ubah-target');
+    var teksUbah = document.getElementById('teks-tahun-ubah');
+    var inputTarget = document.getElementById('ubah-target-k1');
+    var inputRealisasi = document.getElementById('ubah-realisasi-k1');
+    function tutupUbah() {
+      dialogUbah.classList.remove('tampil');
+      setTimeout(function () { dialogUbah.close(); }, 180);
+    }
+    document.querySelectorAll('.ubah-target').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        borangUbah.action = '/opname/' + btn.dataset.tahun + '/ubah-target';
+        teksUbah.textContent = btn.dataset.tahun;
+        inputTarget.value = btn.dataset.targetK1 || '';
+        inputRealisasi.value = btn.dataset.realisasiK1 || '';
+        dialogUbah.showModal();
+        requestAnimationFrame(function () { dialogUbah.classList.add('tampil'); });
+      });
+    });
+    dialogUbah.querySelectorAll('.tutup-modal-ubah').forEach(function (btn) {
+      btn.addEventListener('click', tutupUbah);
+    });
+  }
 })();
 </script>
 
