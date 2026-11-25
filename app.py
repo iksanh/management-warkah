@@ -3236,9 +3236,17 @@ async def opname_beranda(request: Request):
     """Daftar tahun opname: dibuka atau belum, dengan angka target/realisasi."""
     kon = db.sambung()
     dibuka = {r["tahun"]: r for r in kon.execute("SELECT * FROM opname_tahun")}
-    masuk = {r["tahun"]: r["n"] for r in kon.execute(
-        "SELECT tahun, COUNT(*) n FROM residu WHERE sumber = ? GROUP BY tahun",
-        (SUMBER_OPNAME,))}
+    # residu.tahun berkolom TEXT (format bebas dari impor lama), jadi disamakan
+    # ke int di sini supaya cocok dengan kunci TAHUN_OPNAME — tanpa ini,
+    # GROUP BY mengembalikan "2019" (teks) yang tidak pernah == 2019 (int)
+    masuk = {}
+    for r in kon.execute(
+            "SELECT tahun, COUNT(*) n FROM residu WHERE sumber = ? GROUP BY tahun",
+            (SUMBER_OPNAME,)):
+        try:
+            masuk[int(r["tahun"])] = r["n"]
+        except (TypeError, ValueError):
+            pass
     kon.close()
     tahun_list = [{"tahun": t, "dibuka": dibuka.get(t), "jumlah": masuk.get(t, 0)}
                   for t in TAHUN_OPNAME]
@@ -3462,6 +3470,31 @@ async def opname_hapus_baris(request: Request):
     kon.commit()
     kon.close()
     return JSONResponse({"ok": True})
+
+
+async def opname_rekap_petugas(request: Request):
+    """Rekap per petugas: berapa baris opname yang sudah diinput tiap orang.
+
+    Mengikuti susunan kolom "Per petugas" di Rekap Pengecekan Blanko, tetapi
+    sumber datanya baris hasil Opname Fisik Residu (bukan centang blanko).
+    """
+    kon = db.sambung()
+    baris = kon.execute(
+        "SELECT COALESCE(r.diubah_oleh, '(tanpa nama)') petugas, "
+        "COUNT(*) jumlah, COUNT(DISTINCT r.tahun) tahun, "
+        "COUNT(DISTINCT r.wilayah_id) desa, "
+        "COUNT(DISTINCT w.nama_kecamatan) kecamatan, "
+        "COUNT(DISTINCT substr(r.diubah_pada, 1, 10)) hari, "
+        "MIN(substr(r.diubah_pada, 1, 10)) tgl_awal, "
+        "MAX(substr(r.diubah_pada, 1, 10)) tgl_akhir "
+        "FROM residu r LEFT JOIN wilayah w ON w.id = r.wilayah_id "
+        "WHERE r.sumber = ? GROUP BY petugas ORDER BY jumlah DESC, petugas",
+        (SUMBER_OPNAME,)).fetchall()
+    total = kon.execute("SELECT COUNT(*) n FROM residu WHERE sumber = ?",
+                        (SUMBER_OPNAME,)).fetchone()["n"]
+    kon.close()
+    return templates.TemplateResponse(request, "opname_rekap.html", konteks(
+        request, baris=baris, total=total))
 
 
 async def opname_export_xlsx(request: Request):
@@ -3876,6 +3909,7 @@ rute = [
     Route("/opname/{tahun:int}/ubah-target", opname_ubah_target, methods=["POST"]),
     Route("/opname/export.xlsx", opname_export_xlsx),
     Route("/opname/cari.json", opname_cari_json),
+    Route("/opname/rekap", opname_rekap_petugas),
     Route("/opname/{tahun:int}", opname_halaman_tahun),
     Route("/opname/{tahun:int}/baris.json", opname_baris_json),
     Route("/opname/{tahun:int}/baris", opname_simpan_baris, methods=["POST"]),

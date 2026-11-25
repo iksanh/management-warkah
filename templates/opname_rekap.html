@@ -1,0 +1,58 @@
+{% extends "dasar.html" %}
+{% block judul %}Rekap Petugas — Opname Fisik Residu — Aplikasi Warkah{% endblock %}
+{% block isi %}
+
+<p class="jelas"><a href="/opname" data-kembali>&larr; Semua tahun opname</a></p>
+<h1>Rekap Petugas — Opname Fisik Residu</h1>
+<p class="jelas">
+  Jumlah baris yang sudah diinput tiap petugas lewat menu Opname Fisik Residu,
+  seluruh tahun 2017–2026.
+</p>
+
+<div class="kartu rapat">
+  <div class="gulir">
+    <table>
+      <thead>
+        <tr>
+          <th>Petugas</th>
+          <th class="angka">Baris Diinput</th>
+          <th class="angka">Tahun Dikerjakan</th>
+          <th class="angka">Desa</th>
+          <th class="angka">Kecamatan</th>
+          <th class="angka">Hari Kerja</th>
+          <th class="angka">Rata-rata/Hari</th>
+          <th>Tanggal Pertama</th>
+          <th>Tanggal Terakhir</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for b in baris %}
+          <tr>
+            <td>{{ b.petugas }}</td>
+            <td class="angka">{{ b.jumlah | angka }}</td>
+            <td class="angka">{{ b.tahun | angka }}</td>
+            <td class="angka">{{ b.desa | angka }}</td>
+            <td class="angka">{{ b.kecamatan | angka }}</td>
+            <td class="angka">{{ b.hari | angka }}</td>
+            <td class="angka">{{ "%.1f"|format(b.jumlah / b.hari) if b.hari else '—' }}</td>
+            <td class="mono kecil">{{ b.tgl_awal or '—' }}</td>
+            <td class="mono kecil">{{ b.tgl_akhir or '—' }}</td>
+          </tr>
+        {% else %}
+          <tr><td colspan="9" class="kosong">Belum ada baris opname yang diinput.</td></tr>
+        {% endfor %}
+      </tbody>
+      {% if baris %}
+      <tfoot>
+        <tr>
+          <td><strong>JUMLAH SELURUHNYA</strong></td>
+          <td class="angka"><strong>{{ total | angka }}</strong></td>
+          <td colspan="7"></td>
+        </tr>
+      </tfoot>
+      {% endif %}
+    </table>
+  </div>
+</div>
+
+{% endblock %}
