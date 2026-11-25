@@ -1,0 +1,189 @@
+{% extends "dasar.html" %}
+{% block judul %}Residu ganda — Aplikasi Warkah{% endblock %}
+{% block isi %}
+
+<h1>Residu ganda</h1>
+<p class="jelas">
+  Baris residu yang dicurigai mencatat sertipikat yang sama lebih dari sekali.
+  Centang baris yang berlebih lalu hapus; minimal satu baris di setiap kelompok
+  harus tetap ada.
+</p>
+
+<details class="bantuan">
+  <summary>Cara membaca</summary>
+  <ul>
+    <li>Baris dikelompokkan bila <strong>nomor hak</strong> sama, <strong>tahun dan
+      nomor berkas</strong> sama, atau <strong>desa, nama pemegang, dan luas</strong>
+      sama. Nomor hak isian sementara (mis. 30050200000000) tidak dihitung.</li>
+    <li>Baris bertanda <span class="tanda hijau">Disarankan tetap</span> adalah baris
+      yang paling banyak isian kerjanya (tertaut ke bidang, sudah diserahkan,
+      status, blanko, catatan). Periksa dulu sebelum menghapus yang lain.</li>
+    <li>Baris yang dihapus disalin utuh ke cadangan dan dicatat di log aktivitas.
+      Impor ulang RESIDU PTSL tidak akan memasukkannya lagi.</li>
+    <li>Kelompok "Desa + pemegang + luas" bisa saja dua bidang berbeda milik orang
+      yang sama — cocokkan nomor hak dan nomor berkasnya sebelum menghapus.</li>
+  </ul>
+</details>
+
+{% if dihapus %}
+  <div class="pesan sukses">{{ dihapus }} baris residu ganda dihapus.</div>
+{% endif %}
+{% if galat == 'kosong' %}
+  <div class="pesan awas">Belum ada baris yang dicentang.</div>
+{% elif galat == 'habis' %}
+  <div class="pesan awas">Tidak dihapus: semua baris dalam satu kelompok tercentang.
+    Sisakan minimal satu baris di setiap kelompok.</div>
+{% elif galat == 'bukan_ganda' %}
+  <div class="pesan awas">Tidak dihapus: ada baris yang sudah tidak termasuk kelompok
+    ganda (mungkin baru diubah orang lain). Muat ulang halaman lalu coba lagi.</div>
+{% endif %}
+
+<div class="kisi k6">
+  <div class="angka-kotak merah">
+    <div class="nilai">{{ semua | angka }}</div><div class="label">Kelompok ganda</div>
+  </div>
+  <div class="angka-kotak">
+    <div class="nilai">{{ jumlah_dihapus | angka }}</div><div class="label">Sudah dihapus</div>
+  </div>
+</div>
+
+<p class="deret-tombol" style="margin:0 0 12px">
+  <a class="tombol kecil kedua" href="/residu">&laquo; Kembali ke Residu</a>
+  <a class="tombol kecil {{ 'kedua' if jenis }}" href="/residu/ganda">Semua ({{ semua }})</a>
+  {% for kode, label in alasan_ganda.items() %}
+    <a class="tombol kecil {{ 'kedua' if jenis != kode }}" href="/residu/ganda?jenis={{ kode }}">
+      {{ label }} ({{ hitung_jenis[kode] }})</a>
+  {% endfor %}
+</p>
+
+{% if not grup %}
+  <div class="kartu"><p class="jelas" style="margin:0">Tidak ada residu ganda. 🎉</p></div>
+{% else %}
+<form method="post" action="/residu/ganda/hapus" id="borang-ganda"
+      data-konfirmasi="Hapus baris residu yang dicentang? Isinya disimpan sebagai cadangan, tetapi barisnya hilang dari Daftar residu.">
+  <input type="hidden" name="jenis" value="{{ jenis }}">
+
+  {% for g in grup %}
+  <div class="kartu rapat" data-grup>
+    <h2 class="kecil" style="margin-bottom:6px">
+      Kelompok {{ loop.index }} · {{ g.baris | length }} baris
+      {% for a in g.alasan %}<span class="tanda oranye">{{ a }}</span> {% endfor %}
+    </h2>
+    <div class="gulir">
+      <table>
+        <thead>
+          <tr>
+            <th class="tengah">Hapus</th>
+            <th>Tahun</th>
+            <th>No. berkas</th>
+            <th>Nomor hak</th>
+            <th>Desa</th>
+            <th>Pemegang</th>
+            <th class="angka">Luas</th>
+            <th class="kol-opsional">Seri blanko</th>
+            <th>Isian kerja</th>
+            <th class="kol-opsional">Sumber</th>
+          </tr>
+        </thead>
+        <tbody>
+        {% for r in g.baris %}
+          <tr>
+            <td class="tengah">
+              <input type="checkbox" name="hapus" value="{{ r.id }}"
+                     aria-label="Hapus baris residu {{ r.nomor_hak or r.nomor_berkas or r.id }}">
+            </td>
+            <td class="nowrap">{{ r.tahun or '—' }}</td>
+            <td class="mono nowrap">{{ r.nomor_berkas or '—' }}</td>
+            <td class="mono nowrap">
+              {{ r.nomor_hak or '—' }}
+              {% if r.nomor_hak_asli and r.nomor_hak_asli != r.nomor_hak %}
+                <br><span class="kecil redup">asli: {{ r.nomor_hak_asli }}</span>
+              {% endif %}
+            </td>
+            <td>{{ r.nama_desa or r.desa_teks or '—' }}</td>
+            <td>{{ r.nama_pemegang or '—' }}</td>
+            <td class="angka">{{ r.luas | angka if r.luas else '—' }}</td>
+            <td class="mono kol-opsional">{{ r.no_seri_blanko or '—' }}</td>
+            <td class="kecil">
+              {% if r.id == g.saran %}<span class="tanda hijau">Disarankan tetap</span>{% endif %}
+              {% if r.bidang_id %}<a href="/bidang/{{ r.bidang_id }}" class="tanda biru">Tertaut bidang</a>{% endif %}
+              {% if r.sudah_diserahkan %}<span class="tanda hijau">Diserahkan</span>{% endif %}
+              {% if r.status and r.status != 'Belum Ditindaklanjuti' %}<span class="tanda abu">{{ r.status }}</span>{% endif %}
+              {% if r.blanko_ada %}<span class="tanda abu">Blanko: {{ r.blanko_ada }}</span>{% endif %}
+              {% if r.tidak_ditemukan %}<span class="tanda merah">Tidak ditemukan</span>{% endif %}
+              {% if r.tipologi %}<span class="tanda ungu">{{ r.tipologi }}</span>{% endif %}
+              {% if r.diubah_oleh %}<br><span class="redup">diubah {{ r.diubah_pada }} oleh {{ r.diubah_oleh }}</span>{% endif %}
+            </td>
+            <td class="kecil redup kol-opsional">{{ r.sumber or '—' }}</td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% endfor %}
+
+  <div class="kartu">
+    <div class="bidang-isian">
+      <label for="alasan">Alasan (opsional)</label>
+      <input type="text" id="alasan" name="alasan" maxlength="300" class="lebar-penuh"
+             placeholder="mis. diketik dua kali di RESIDU PTSL.xlsx">
+    </div>
+    <p class="kecil redup" id="info-pilih">Belum ada baris yang dicentang.</p>
+    <button type="submit" class="merah" id="tombol-hapus" disabled>Hapus yang dicentang</button>
+  </div>
+</form>
+{% endif %}
+
+{% if riwayat %}
+<details class="kartu-lipat">
+  <summary>Riwayat penghapusan ({{ jumlah_dihapus | angka }})</summary>
+  <div class="gulir">
+    <table>
+      <thead>
+        <tr><th>Waktu</th><th>Oleh</th><th>Tahun</th><th>No. berkas</th>
+            <th>Nomor hak</th><th>Pemegang</th><th>Alasan</th></tr>
+      </thead>
+      <tbody>
+      {% for h in riwayat %}
+        <tr>
+          <td class="nowrap kecil">{{ h.dihapus_pada }}</td>
+          <td>{{ h.dihapus_oleh or '—' }}</td>
+          <td>{{ h.isi.tahun or '—' }}</td>
+          <td class="mono">{{ h.isi.nomor_berkas or '—' }}</td>
+          <td class="mono">{{ h.nomor_hak or '—' }}</td>
+          <td>{{ h.isi.nama_pemegang or '—' }}</td>
+          <td class="kecil">{{ h.alasan or '—' }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</details>
+{% endif %}
+
+<script>
+(function () {
+  var borang = document.getElementById('borang-ganda');
+  if (!borang) return;
+  var tombol = document.getElementById('tombol-hapus');
+  var info = document.getElementById('info-pilih');
+  function perbarui() {
+    var n = 0, habis = false;
+    borang.querySelectorAll('[data-grup]').forEach(function (g) {
+      var kotak = g.querySelectorAll('input[name=hapus]');
+      var c = g.querySelectorAll('input[name=hapus]:checked').length;
+      n += c;
+      if (c && c === kotak.length) habis = true;
+    });
+    tombol.disabled = !n || habis;
+    info.textContent = habis
+      ? 'Ada kelompok yang semua barisnya tercentang — sisakan minimal satu.'
+      : (n ? n + ' baris akan dihapus.' : 'Belum ada baris yang dicentang.');
+  }
+  borang.addEventListener('change', perbarui);
+  perbarui();
+})();
+</script>
+
+{% endblock %}

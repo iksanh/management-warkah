@@ -113,6 +113,12 @@
       di berkas.
     </p>
   {% endif %}
+  {% if t.dibuang %}
+    <p class="kecil redup">
+      {{ t.dibuang | angka }} baris tidak dimasukkan karena sudah pernah dihapus
+      sebagai residu ganda (lihat <a href="/residu/ganda">Residu ganda</a>).
+    </p>
+  {% endif %}
   {% if t.ganda_beda %}
     <div class="pesan awas">
       <strong>{{ t.ganda_beda | angka }} nomor hak dipakai dua data yang berbeda</strong>

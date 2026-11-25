@@ -168,7 +168,11 @@
       </div>
     </details>
     {% if admin %}
-      <form method="post" action="/residu/cocokkan" class="aksi-kanan">
+      <a href="/residu/ganda" class="tombol kecil kedua aksi-kanan"
+         title="Periksa dan hapus baris residu yang tercatat lebih dari sekali">
+        Residu ganda
+      </a>
+      <form method="post" action="/residu/cocokkan">
         <input type="hidden" name="kembali_ke" value="{{ kembali_ke }}">
         <button type="submit" class="kecil kedua"
                 title="Isi ulang tautan ke data bidang untuk baris yang belum tercocokkan">

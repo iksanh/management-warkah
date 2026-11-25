@@ -67,7 +67,7 @@ KOLOM_ISI = ["bidang_id", "wilayah_id", "tahun", "nomor_berkas", "nomor_hak",
              "sudah_diserahkan", "tipologi", "keterangan"]
 
 HITUNGAN = ("baris", "baru", "diperbarui", "sama", "cocok", "belum_cocok",
-            "lewat", "ganda", "ganda_beda")
+            "lewat", "ganda", "ganda_beda", "dibuang")
 
 # Satu nomor hak kadang ditulis lebih dari sekali di lembar yang sama. Sebagian
 # memang baris kembar, sebagian lagi sertipikat yang sama dengan kode tipologi
@@ -429,7 +429,14 @@ def proses_lembar(kon, wilayah, nomor_bidang, df, nama_lembar, opsi, berkas):
     lama = {r["kunci"]: r for r in kon.execute(
         "SELECT kunci, %s FROM residu" % ", ".join(KOLOM_ISI))}
 
+    # baris kembar yang sudah dihapus Admin (halaman Residu ganda) tidak
+    # dimasukkan lagi, kecuali kuncinya kini dipakai baris residu yang masih ada
+    dibuang = {r["kunci"] for r in kon.execute("SELECT kunci FROM residu_dihapus")}
+
     for kunci, n in isi.items():
+        if kunci in dibuang and kunci not in lama:
+            h["dibuang"] += 1
+            continue
         bid = n["bidang_id"]
         if bid and dipakai.get(bid) not in (None, kunci):
             h["catatan"].append("nomor hak %s dipakai lebih dari satu baris residu"

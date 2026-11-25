@@ -4,6 +4,7 @@ Jalankan:  python app.py
 Lalu buka: http://localhost:8000   (dari komputer lain: http://<ip-server>:8000)
 """
 import io
+import json
 import os
 import re
 from datetime import date, datetime, timedelta
@@ -1663,6 +1664,188 @@ async def residu(request: Request):
         kode_aktif=[c["kode"] for c in catatan_aktif], peta_catatan=peta_catatan,
         qp=qp, dasar=dasar, kembali_ke=kembali_ke, hari_ini=hari_ini(),
         tersimpan=qp.get("tersimpan")))
+
+
+# ------------------------------------------------------------ residu ganda
+# Satu sertipikat kadang tercatat di lebih dari satu baris residu: diketik dua
+# kali di RESIDU PTSL.xlsx dengan nomor hak/berkas yang sedikit berbeda, atau
+# ditandai dua kali dari katalog karena bidangnya sendiri kembar. Halaman ini
+# mengelompokkan baris yang dicurigai kembar dan membiarkan Admin membuang
+# yang berlebih. Baris yang dibuang disalin utuh ke residu_dihapus.
+
+ALASAN_GANDA = {
+    "hak": "Nomor hak sama",
+    "berkas": "Tahun + nomor berkas sama",
+    "pemegang": "Desa + pemegang + luas sama",
+}
+
+
+def nomor_hak_sah(nomor):
+    """Nomor hak yang layak dipakai mencari kembaran.
+
+    Nomor isian sementara seperti 30050200000000 (lima digit terakhir nol)
+    dipakai banyak berkas berbeda, jadi tidak dianggap tanda kembar.
+    """
+    angka_saja = re.sub(r"[^0-9]", "", nomor or "")
+    return len(angka_saja) >= 5 and not angka_saja.endswith("00000")
+
+
+def ciri_ganda(r):
+    """Daftar (jenis, kunci) yang membuat satu baris bisa kembar dengan lain."""
+    ciri = []
+    if nomor_hak_sah(r["nomor_hak"]):
+        ciri.append(("hak", r["nomor_hak"].strip()))
+    berkas = (r["nomor_berkas"] or "").strip().lstrip("0")
+    if berkas and r["tahun"]:
+        ciri.append(("berkas", "%s|%s" % (r["tahun"], berkas)))
+    nama = " ".join((r["nama_pemegang"] or "").upper().split())
+    desa = r["wilayah_id"] or (r["desa_teks"] or "").strip().upper()
+    if nama and r["luas"] and desa:
+        ciri.append(("pemegang", "%s|%s|%s" % (desa, nama, r["luas"])))
+    return ciri
+
+
+def bobot_kerja(r):
+    """Seberapa banyak isian kerja petugas pada satu baris residu.
+
+    Dipakai menyarankan baris mana yang dipertahankan: baris yang sudah
+    tertaut ke bidang atau sudah diisi petugas sebaiknya tidak dibuang.
+    """
+    nilai = 0
+    for k in ("tindak_lanjut", "petugas", "tanggal_serah", "penerima", "catatan",
+              "catatan_kode", "blanko_ada", "tipologi", "no_seri_blanko"):
+        nilai += 1 if r[k] else 0
+    nilai += 1 if r["status"] and r["status"] != "Belum Ditindaklanjuti" else 0
+    nilai += 2 if r["bidang_id"] else 0
+    nilai += 2 if r["sudah_diserahkan"] else 0
+    return nilai
+
+
+def kelompok_ganda(kon):
+    """Kelompok baris residu yang dicurigai kembar.
+
+    Baris disatukan bila berbagi salah satu ciri (lihat ``ciri_ganda``);
+    kaitannya menular, jadi A-B lewat nomor hak dan B-C lewat nomor berkas
+    menjadi satu kelompok A-B-C. Kembaliannya daftar dict
+    {"baris": [...], "alasan": [...], "jenis": [...], "saran": id baris yang
+    disarankan tetap disimpan}.
+    """
+    baris = kon.execute(
+        "SELECT r.*, w.nama_desa, w.nama_kecamatan FROM residu r "
+        "LEFT JOIN wilayah w ON w.id = r.wilayah_id ORDER BY r.id").fetchall()
+    induk = {r["id"]: r["id"] for r in baris}
+
+    def akar(i):
+        while induk[i] != i:
+            induk[i] = induk[induk[i]]
+            i = induk[i]
+        return i
+
+    pemilik, alasan = {}, {}
+    for r in baris:
+        for jenis, kunci in ciri_ganda(r):
+            lain = pemilik.setdefault((jenis, kunci), r["id"])
+            if lain != r["id"]:
+                a, b = akar(lain), akar(r["id"])
+                if a != b:
+                    induk[b] = a
+                alasan.setdefault(r["id"], set()).add(jenis)
+                alasan.setdefault(lain, set()).add(jenis)
+
+    grup = {}
+    for r in baris:
+        grup.setdefault(akar(r["id"]), []).append(r)
+    hasil = []
+    for anggota in grup.values():
+        if len(anggota) < 2:
+            continue
+        jenis = set().union(*(alasan.get(r["id"], set()) for r in anggota))
+        saran = max(anggota, key=lambda r: (bobot_kerja(r), -r["id"]))["id"]
+        hasil.append({"baris": anggota, "saran": saran,
+                      "alasan": [ALASAN_GANDA[j] for j in ALASAN_GANDA if j in jenis],
+                      "jenis": sorted(jenis)})
+    hasil.sort(key=lambda g: (g["baris"][0]["tahun"] or "~",
+                              g["baris"][0]["nomor_hak"] or ""))
+    return hasil
+
+
+async def residu_ganda(request: Request):
+    """Daftar kelompok residu kembar (khusus Admin)."""
+    if not is_admin(request):
+        return tolak(request)
+    qp = request.query_params
+    kon = db.sambung()
+    grup = kelompok_ganda(kon)
+    jenis = (qp.get("jenis") or "").strip()
+    hitung_jenis = {j: sum(1 for g in grup if j in g["jenis"]) for j in ALASAN_GANDA}
+    semua = len(grup)
+    if jenis in ALASAN_GANDA:
+        grup = [g for g in grup if jenis in g["jenis"]]
+    riwayat = kon.execute(
+        "SELECT residu_id, nomor_hak, data, alasan, dihapus_oleh, dihapus_pada "
+        "FROM residu_dihapus ORDER BY id DESC LIMIT 50").fetchall()
+    jumlah_dihapus = kon.execute("SELECT COUNT(*) FROM residu_dihapus").fetchone()[0]
+    kon.close()
+    riwayat = [dict(r, isi=json.loads(r["data"])) for r in riwayat]
+    return templates.TemplateResponse(request, "residu_ganda.html", konteks(
+        request, grup=grup, semua=semua, jenis=jenis, alasan_ganda=ALASAN_GANDA,
+        hitung_jenis=hitung_jenis, riwayat=riwayat, jumlah_dihapus=jumlah_dihapus,
+        galat=qp.get("galat"), dihapus=qp.get("dihapus")))
+
+
+async def hapus_residu_ganda(request: Request):
+    """Buang baris residu kembar yang dicentang Admin.
+
+    Hanya baris yang memang masuk kelompok ganda yang boleh dibuang, dan dari
+    setiap kelompok minimal satu baris harus tersisa, supaya halaman ini tidak
+    bisa dipakai menghapus residu sembarangan. Isi baris disalin dulu ke
+    residu_dihapus sebagai cadangan.
+    """
+    if not is_admin(request):
+        return tolak(request)
+    form = await request.form()
+    pilih = {int(i) for i in form.getlist("hapus") if str(i).isdigit()}
+    alasan = (form.get("alasan") or "").strip()[:300] or None
+    jenis = form.get("jenis")
+    kembali = "/residu/ganda?" + (("jenis=%s&" % jenis) if jenis in ALASAN_GANDA else "")
+    if not pilih:
+        return RedirectResponse(kembali + "galat=kosong", status_code=303)
+
+    siapa = petugas_aktif(request)
+    kon = db.sambung()
+    try:
+        anggota = {}
+        for g in kelompok_ganda(kon):
+            ids = {r["id"] for r in g["baris"]}
+            for r in g["baris"]:
+                anggota[r["id"]] = (ids, r)
+        if any(i not in anggota for i in pilih):
+            return RedirectResponse(kembali + "galat=bukan_ganda", status_code=303)
+        if any(anggota[i][0] <= pilih for i in pilih):
+            return RedirectResponse(kembali + "galat=habis", status_code=303)
+
+        waktu = sekarang()
+        for rid in sorted(pilih):
+            r = anggota[rid][1]
+            data = {k: r[k] for k in r.keys() if k not in ("nama_desa", "nama_kecamatan")}
+            kon.execute(
+                "INSERT INTO residu_dihapus (residu_id, kunci, nomor_hak, data, alasan, "
+                "dihapus_oleh, dihapus_pada) VALUES (?,?,?,?,?,?,?)",
+                (rid, r["kunci"], r["nomor_hak"], json.dumps(data, ensure_ascii=False),
+                 alasan, siapa or None, waktu))
+            kon.execute("DELETE FROM residu WHERE id = ?", (rid,))
+            tulis_log(kon, siapa, "Hapus residu ganda", r["bidang_id"],
+                      "%s (tahun %s, berkas %s, %s)%s" % (
+                          r["nomor_hak"] or "-", r["tahun"] or "-",
+                          r["nomor_berkas"] or "-", r["nama_pemegang"] or "-",
+                          ("; " + alasan) if alasan else ""))
+        kon.commit()
+    except Exception:
+        kon.rollback()
+        raise
+    finally:
+        kon.close()
+    return RedirectResponse(kembali + "dihapus=%d" % len(pilih), status_code=303)
 
 
 # kolom hasil impor yang boleh dilengkapi petugas selama masih kosong; urutan
@@ -3831,6 +4014,8 @@ rute = [
     Route("/residu/penyerahan.csv", laporan_serah_csv),
     Route("/residu/penyerahan.pdf", laporan_serah_pdf),
     Route("/residu/centang", centang_blanko, methods=["POST"]),
+    Route("/residu/ganda", residu_ganda),
+    Route("/residu/ganda/hapus", hapus_residu_ganda, methods=["POST"]),
     Route("/residu/{residu_id:int}/simpan", simpan_residu, methods=["POST"]),
     Route("/residu/tipologi", simpan_tipologi, methods=["POST"]),
     Route("/residu/tipologi/rekap", rekap_tipologi),

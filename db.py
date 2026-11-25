@@ -294,6 +294,21 @@ CREATE TABLE IF NOT EXISTS log_aktivitas (
 );
 CREATE INDEX IF NOT EXISTS ix_log_waktu ON log_aktivitas (waktu DESC);
 
+-- baris residu yang dihapus Admin dari halaman Residu ganda. Isi barisnya
+-- disimpan utuh (JSON) sebagai cadangan, dan kuncinya dipakai impor RESIDU
+-- PTSL supaya baris kembar yang sudah dibuang tidak muncul lagi saat impor ulang.
+CREATE TABLE IF NOT EXISTS residu_dihapus (
+    id            INTEGER PRIMARY KEY,
+    residu_id     INTEGER,
+    kunci         TEXT NOT NULL,
+    nomor_hak     TEXT,
+    data          TEXT NOT NULL,
+    alasan        TEXT,
+    dihapus_oleh  TEXT,
+    dihapus_pada  TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ix_residu_dihapus_kunci ON residu_dihapus (kunci);
+
 -- tahun opname fisik residu K1 PTSL yang sudah dibuka (menu Opname Fisik
 -- Residu); target/realisasi hanya angka laporan, dicatat sekali saat tahunnya
 -- dibuka. Baris datanya sendiri disimpan di tabel residu (kolom sumber =
