@@ -3186,6 +3186,308 @@ async def jalankan_impor_residu(request: Request):
         hasil=hasil, galat=galat, terpilih={"mode": mode, "arsip": arsip}))
 
 
+# ------------------------------------------------------- opname fisik residu
+# Menu "Opname Fisik Residu": pendataan ulang per tahun untuk inventarisasi/
+# stock opname fisik K1 PTSL 2017-2026 (Surat Sekjen ATR/BPN perihal
+# Inventarisasi/Stock Opname Fisik dan Pengisian Matriks Tipologi Permasalahan
+# K1 PTSL). Barisnya disimpan di tabel residu seperti baris residu lainnya
+# (supaya tetap ikut tampil di Daftar Residu), ditandai lewat kolom "sumber"
+# supaya "mulai opname dari 0" per tahun tidak tercampur dengan baris lama
+# hasil impor/katalog.
+SUMBER_OPNAME = "Opname fisik K1"
+TAHUN_OPNAME = list(range(2017, 2027))
+KANTOR_PERTANAHAN = "Kabupaten Bone Bolango"
+# urutan kolom tipologi di lembar Matriks K1, mengikuti Surat Sekjen di atas
+KOLOM_MATRIKS_TIPOLOGI = ["T1.1", "T1.2", "T1.3", "T1.4", "T2.1", "T2.2", "T2.3",
+                          "T2.4", "T3.1", "T3.2", "T3.3", "T4", "T5", "T6", "T7",
+                          "T8", "T9"]
+
+
+def opname_info(kon, tahun):
+    """Baris opname_tahun untuk satu tahun, atau None bila belum dibuka."""
+    return kon.execute("SELECT * FROM opname_tahun WHERE tahun = ?", (tahun,)).fetchone()
+
+
+def opname_baris(kon, tahun):
+    """Baris residu "bersih" (hasil opname fisik, bukan sisa impor lama) satu tahun."""
+    return kon.execute(
+        SQL_RESIDU + " WHERE r.tahun = ? AND r.sumber = ? "
+        "ORDER BY w.nama_kecamatan, w.nama_desa, r.nomor_hak",
+        (tahun, SUMBER_OPNAME)).fetchall()
+
+
+def kunci_opname(kon, nomor_hak):
+    """Kunci baris residu baru dari borang Opname Fisik Residu.
+
+    Nomor hak berformat baku KKP dipakai apa adanya (sama seperti impor dan
+    tanda dari katalog, lihat ``kunci_residu``) supaya impor RESIDU PTSL
+    berikutnya memperbarui baris ini, bukan membuat baris kembar. Nomor lain —
+    termasuk kosong, karena banyak berkas K1 lama hanya punya nomor berkas —
+    dipakai kunci acak tersendiri yang praktis mustahil bentrok.
+    """
+    nomor = (nomor_hak or "").strip()
+    if re.fullmatch(r"\d{2}(\.\d{2}){3}\.\d\.\d{5}", nomor) and not kon.execute(
+            "SELECT 1 FROM residu WHERE kunci = ?", (nomor,)).fetchone():
+        return nomor
+    return "opname|%s" % os.urandom(8).hex()
+
+
+async def opname_beranda(request: Request):
+    """Daftar tahun opname: dibuka atau belum, dengan angka target/realisasi."""
+    kon = db.sambung()
+    dibuka = {r["tahun"]: r for r in kon.execute("SELECT * FROM opname_tahun")}
+    masuk = {r["tahun"]: r["n"] for r in kon.execute(
+        "SELECT tahun, COUNT(*) n FROM residu WHERE sumber = ? GROUP BY tahun",
+        (SUMBER_OPNAME,))}
+    kon.close()
+    tahun_list = [{"tahun": t, "dibuka": dibuka.get(t), "jumlah": masuk.get(t, 0)}
+                  for t in TAHUN_OPNAME]
+    return templates.TemplateResponse(request, "opname.html", konteks(
+        request, tahun_list=tahun_list, tahun_opname=TAHUN_OPNAME,
+        tersimpan=request.query_params.get("tersimpan")))
+
+
+async def opname_buka(request: Request):
+    """Buka satu tahun untuk opname (atau langsung lanjut bila sudah dibuka)."""
+    form = await request.form()
+    try:
+        tahun = int(form.get("tahun"))
+        if tahun not in TAHUN_OPNAME:
+            raise ValueError
+    except (TypeError, ValueError):
+        return tolak(request, "Tahun opname tidak sah.")
+
+    kon = db.sambung()
+    if opname_info(kon, tahun) is None:
+        def angka(nama):
+            t = (form.get(nama) or "").strip().replace(".", "")
+            return int(t) if t.isdigit() else None
+        kon.execute(
+            "INSERT INTO opname_tahun (tahun, target_k1, realisasi_k1, "
+            "dibuka_oleh, dibuka_pada) VALUES (?,?,?,?,?)",
+            (tahun, angka("target_k1"), angka("realisasi_k1"),
+             petugas_aktif(request) or None, sekarang()))
+        tulis_log(kon, petugas_aktif(request), "Buka opname fisik residu %d" % tahun,
+                  None, None)
+        kon.commit()
+    kon.close()
+    return RedirectResponse("/opname/%d?tersimpan=1" % tahun, status_code=303)
+
+
+async def opname_halaman_tahun(request: Request):
+    """Borang isian + daftar bersih baris opname satu tahun."""
+    tahun = request.path_params["tahun"]
+    if tahun not in TAHUN_OPNAME:
+        return tolak(request, "Tahun opname tidak tersedia.")
+    kon = db.sambung()
+    info = opname_info(kon, tahun)
+    if info is None:
+        kon.close()
+        return RedirectResponse("/opname", status_code=303)
+    baris = opname_baris(kon, tahun)
+    wilayah = kon.execute(
+        "SELECT id, nama_kecamatan, nama_desa FROM wilayah "
+        "ORDER BY nama_kecamatan, nama_desa").fetchall()
+    daftar_hak = kon.execute("SELECT kode, nama FROM jenis_hak ORDER BY kode").fetchall()
+    daftar_tipologi = kon.execute(
+        "SELECT kode, kelompok, nama FROM tipologi ORDER BY urut").fetchall()
+    grup_catatan = kelompokkan_catatan(daftar_catatan(kon))
+    peta_catatan = {c["kode"]: c["teks"] for c in daftar_catatan(kon, semua=True)}
+    kon.close()
+    return templates.TemplateResponse(request, "opname_tahun.html", konteks(
+        request, tahun=tahun, info=info, baris=baris, jumlah=len(baris),
+        wilayah=wilayah, daftar_hak=daftar_hak, daftar_tipologi=daftar_tipologi,
+        grup_catatan=grup_catatan, peta_catatan=peta_catatan,
+        tersimpan=request.query_params.get("tersimpan"),
+        galat=request.query_params.get("galat")))
+
+
+async def opname_baris_json(request: Request):
+    """Baris opname terkini satu tahun, untuk pembaruan tabel berkala (polling)."""
+    tahun = request.path_params["tahun"]
+    kon = db.sambung()
+    baris = opname_baris(kon, tahun)
+    peta_catatan = {c["kode"]: c["teks"] for c in daftar_catatan(kon, semua=True)}
+    kon.close()
+    html = templates.get_template("bagian_opname_baris.html").render(
+        baris=baris, tahun=tahun, peta_catatan=peta_catatan)
+    return JSONResponse({"jumlah": len(baris), "html": html})
+
+
+async def opname_cari_json(request: Request):
+    """Pencarian baris residu yang sudah ada (riwayat), untuk mengisi borang otomatis."""
+    q = (request.query_params.get("q") or "").strip()
+    if len(q) < 2:
+        return JSONResponse([])
+    kon = db.sambung()
+    baris = kon.execute(
+        SQL_RESIDU + " WHERE (r.nomor_hak LIKE ? OR r.nomor_hak_asli LIKE ? "
+        "OR r.nomor_berkas LIKE ?) ORDER BY r.tahun DESC LIMIT 15",
+        ["%" + q + "%", "%" + q + "%", "%" + q + "%"]).fetchall()
+    kon.close()
+    return JSONResponse([{
+        "tahun": r["tahun"],
+        "nomor_berkas": r["nomor_berkas"],
+        "nomor_hak": r["nomor_hak"] or r["nomor_hak_asli"],
+        "wilayah_id": r["wilayah_id"],
+        "nama_desa": r["nama_desa"] or r["desa_teks"],
+        "nama_kecamatan": r["nama_kecamatan"] or r["kecamatan_teks"],
+        "jenis_hak": r["jenis_hak"],
+        "nama_pemegang": r["nama_pemegang"],
+        "luas": r["luas"],
+        "sudah_diserahkan": r["sudah_diserahkan"],
+        "tipologi": r["tipologi"],
+        "catatan_kode": r["catatan_kode"],
+        "catatan": r["catatan"],
+    } for r in baris])
+
+
+async def opname_simpan_baris(request: Request):
+    """Simpan satu baris baru hasil opname fisik ke tabel residu."""
+    tahun = request.path_params["tahun"]
+    if tahun not in TAHUN_OPNAME:
+        return tolak(request, "Tahun opname tidak sah.")
+    kon = db.sambung()
+    if opname_info(kon, tahun) is None:
+        kon.close()
+        return tolak(request, "Tahun ini belum dibuka untuk opname.")
+    form = await request.form()
+
+    wid = form.get("wilayah_id")
+    w = kon.execute(
+        "SELECT id, nama_desa, nama_kecamatan FROM wilayah WHERE id = ?",
+        (int(wid),)).fetchone() if (wid or "").isdigit() else None
+    jh = kon.execute("SELECT nama FROM jenis_hak WHERE kode = ?",
+                     (form.get("jenis_hak") or "",)).fetchone()
+    nomor_berkas = (form.get("nomor_berkas") or "").strip()[:100] or None
+    nomor_hak = (form.get("nomor_hak") or "").strip()[:100] or None
+    nama_pemegang = (form.get("nama_pemegang") or "").strip()[:200] or None
+    sudah = 1 if form.get("sudah_diserahkan") == "1" else 0
+    tipologi = (form.get("tipologi") or "").strip() or None
+    if tipologi and not kon.execute("SELECT 1 FROM tipologi WHERE kode = ?",
+                                    (tipologi,)).fetchone():
+        tipologi = None
+    catatan_kode = (form.get("catatan_kode") or "").strip() or None
+    if catatan_kode and not kon.execute("SELECT 1 FROM catatan_baku WHERE kode = ?",
+                                        (catatan_kode,)).fetchone():
+        catatan_kode = None
+    catatan = (form.get("catatan") or "").strip()[:500] or None
+
+    galat, luas = None, None
+    if w is None:
+        galat = "Desa/Kelurahan belum dipilih."
+    elif jh is None:
+        galat = "Jenis hak belum dipilih."
+    elif not nomor_hak and not nomor_berkas:
+        galat = "Isi Nomor Hak atau Nomor Berkas, minimal salah satu."
+    else:
+        try:
+            luas = baca_luas(form.get("luas"))
+        except ValueError as e:
+            galat = str(e)
+    if galat:
+        kon.close()
+        return RedirectResponse(
+            "/opname/%d?galat=%s" % (tahun, quote(galat, safe="")), status_code=303)
+
+    siapa = petugas_aktif(request)
+    bidang_id = None
+    if nomor_hak:
+        b = kon.execute(
+            "SELECT b.id FROM bidang b LEFT JOIN residu r ON r.bidang_id = b.id "
+            "WHERE b.nomor_hak = ? AND r.id IS NULL", (nomor_hak,)).fetchone()
+        bidang_id = b["id"] if b else None
+
+    kon.execute(
+        "INSERT INTO residu (kunci, bidang_id, wilayah_id, tahun, nomor_berkas, "
+        "nomor_hak, nomor_hak_asli, jenis_hak, jenis_hak_teks, desa_teks, "
+        "kecamatan_teks, nama_pemegang, luas, sudah_diserahkan, tipologi, "
+        "catatan_kode, catatan, status, sumber, diimpor_pada, diubah_oleh, "
+        "diubah_pada) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        (kunci_opname(kon, nomor_hak), bidang_id, w["id"], tahun, nomor_berkas,
+         nomor_hak, nomor_hak, form.get("jenis_hak"), jh["nama"], w["nama_desa"],
+         w["nama_kecamatan"], nama_pemegang, luas, sudah, tipologi, catatan_kode,
+         catatan, "Belum Ditindaklanjuti", SUMBER_OPNAME, sekarang(), siapa or None,
+         sekarang()))
+    tulis_log(kon, siapa, "Tambah baris opname fisik residu %d" % tahun, bidang_id,
+             "nomor hak %s" % (nomor_hak or nomor_berkas or "-"))
+    kon.commit()
+    kon.close()
+    return RedirectResponse("/opname/%d?tersimpan=1" % tahun, status_code=303)
+
+
+async def opname_hapus_baris(request: Request):
+    """Hapus satu baris opname; hanya baris dari menu ini yang boleh dihapus."""
+    tahun = request.path_params["tahun"]
+    rid = request.path_params["residu_id"]
+    kon = db.sambung()
+    r = kon.execute("SELECT id, sumber, nomor_hak, bidang_id FROM residu "
+                    "WHERE id = ? AND tahun = ?", (rid, tahun)).fetchone()
+    if r is None or r["sumber"] != SUMBER_OPNAME:
+        kon.close()
+        return JSONResponse({"ok": False, "pesan": "Baris ini tidak bisa dihapus dari sini."},
+                            status_code=400)
+    kon.execute("DELETE FROM residu WHERE id = ?", (rid,))
+    tulis_log(kon, petugas_aktif(request), "Hapus baris opname fisik residu %d" % tahun,
+             r["bidang_id"], "nomor hak %s" % (r["nomor_hak"] or "-"))
+    kon.commit()
+    kon.close()
+    return JSONResponse({"ok": True})
+
+
+async def opname_export_xlsx(request: Request):
+    """Unduh matriks tipologi K1 PTSL, satu lembar per tahun (2017-2026).
+
+    Formatnya mengikuti contoh matriks yang diminta Tim Monitoring Evaluasi
+    PTSL: satu baris per berkas, satu kolom per kode tipologi berisi tanda
+    "v", dan kolom Jumlah berisi berapa kode yang tertanda pada baris itu.
+    """
+    from openpyxl import Workbook
+    from openpyxl.styles import Alignment, Font
+    from openpyxl.utils import get_column_letter as huruf
+
+    kon = db.sambung()
+    per_tahun = {t: opname_baris(kon, t) for t in TAHUN_OPNAME}
+    kon.close()
+
+    tebal = Font(bold=True)
+    tengah = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    kepala = (["No.", "Kantor Pertanahan", "Kecamatan", "Desa", "Nomor Berkas", "Tahun"]
+              + KOLOM_MATRIKS_TIPOLOGI + ["Jumlah"])
+
+    buku = Workbook()
+    buku.remove(buku.active)
+    for t in TAHUN_OPNAME:
+        ls = buku.create_sheet(str(t))
+        ls.append(kepala)
+        for sel in ls[1]:
+            sel.font, sel.alignment = tebal, tengah
+        ls.row_dimensions[1].height = 24
+        for no, r in enumerate(per_tahun[t], start=1):
+            kode = [k.strip() for k in (r["tipologi"] or "").split(",") if k.strip()]
+            tanda = ["v" if k in kode else None for k in KOLOM_MATRIKS_TIPOLOGI]
+            ls.append([no, KANTOR_PERTANAHAN, r["nama_kecamatan"] or r["kecamatan_teks"],
+                      r["nama_desa"] or r["desa_teks"], r["nomor_berkas"], t]
+                     + tanda + [len(kode)])
+        for sel_col in ls["G1:W1"][0]:
+            sel_col.alignment = tengah
+        lebar = {"A": 6, "B": 24, "C": 18, "D": 18, "E": 16, "F": 9}
+        for c, lb in lebar.items():
+            ls.column_dimensions[c].width = lb
+        for c in range(7, 7 + len(KOLOM_MATRIKS_TIPOLOGI) + 1):
+            ls.column_dimensions[huruf(c)].width = 7
+        ls.freeze_panes = "A2"
+    buku.active = 0
+
+    wadah = io.BytesIO()
+    buku.save(wadah)
+    return Response(
+        wadah.getvalue(),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": 'attachment; filename='
+                '"matriks_tipologi_k1_bonbol_%s.xlsx"' % hari_ini()})
+
+
 # --------------------------------------------------------------- akun & masuk
 async def masuk(request: Request):
     tujuan = request.query_params.get("next") or "/"
@@ -3540,6 +3842,14 @@ rute = [
     Route("/residu/cocokkan", cocokkan_residu, methods=["POST"]),
     Route("/residu/impor", halaman_impor_residu),
     Route("/residu/impor/jalankan", jalankan_impor_residu, methods=["POST"]),
+    Route("/opname", opname_beranda),
+    Route("/opname/buka", opname_buka, methods=["POST"]),
+    Route("/opname/export.xlsx", opname_export_xlsx),
+    Route("/opname/cari.json", opname_cari_json),
+    Route("/opname/{tahun:int}", opname_halaman_tahun),
+    Route("/opname/{tahun:int}/baris.json", opname_baris_json),
+    Route("/opname/{tahun:int}/baris", opname_simpan_baris, methods=["POST"]),
+    Route("/opname/{tahun:int}/{residu_id:int}/hapus", opname_hapus_baris, methods=["POST"]),
     Mount("/static", StaticFiles(directory=os.path.join(BASE_DIR, "static")), name="static"),
 ]
 

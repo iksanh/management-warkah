@@ -1,0 +1,287 @@
+{% extends "dasar.html" %}
+{% block judul %}Opname {{ tahun }} — Opname Fisik Residu — Aplikasi Warkah{% endblock %}
+{% block isi %}
+
+<p class="jelas"><a href="/opname" data-kembali>&larr; Semua tahun opname</a></p>
+<h1>Opname Fisik Residu {{ tahun }}</h1>
+<p class="jelas">
+  Target K1: <strong>{{ info.target_k1 | angka if info.target_k1 is not none else '—' }}</strong>
+  &nbsp;·&nbsp; Realisasi K1 (dilaporkan): <strong>{{ info.realisasi_k1 | angka if info.realisasi_k1 is not none else '—' }}</strong>
+  &nbsp;·&nbsp; Sudah diinput di sini: <strong id="opname-jumlah">{{ jumlah | angka }}</strong> baris
+</p>
+
+{% if tersimpan %}<div class="pesan sukses">Baris tersimpan.</div>{% endif %}
+{% if galat %}<div class="pesan awas">{{ galat }}</div>{% endif %}
+
+<div class="kartu">
+  <h2>Tambah baris</h2>
+  <div class="bidang-isian isian-lebar">
+    <label for="cari-opname">Cari dari Daftar Residu (Nomor Hak / Nomor Berkas)</label>
+    <input type="search" id="cari-opname" class="lebar-penuh" autocomplete="off"
+           placeholder="ketik nomor hak atau nomor berkas — minimal 2 huruf, lalu pilih untuk mengisi otomatis">
+    <div class="hasil-tautan" id="hasil-cari-opname" hidden></div>
+  </div>
+
+  <form method="post" action="/opname/{{ tahun }}/baris" id="borang-opname">
+    <div class="baris-borang tiga">
+      <div class="bidang-isian">
+        <label for="op-berkas">Nomor Berkas</label>
+        <input type="text" id="op-berkas" name="nomor_berkas" maxlength="100" placeholder="nomor berkas">
+      </div>
+      <div class="bidang-isian">
+        <label for="op-hak">Nomor Hak</label>
+        <input type="text" id="op-hak" name="nomor_hak" maxlength="100" placeholder="nomor hak di sertipikat">
+      </div>
+      <div class="bidang-isian">
+        <label for="op-pemegang">Nama Pemegang Hak</label>
+        <input type="text" id="op-pemegang" name="nama_pemegang" maxlength="200" placeholder="nama di sertipikat">
+      </div>
+    </div>
+
+    <div class="baris-borang tiga">
+      <div class="bidang-isian">
+        <label for="op-kecamatan">Kecamatan</label>
+        <select id="op-kecamatan">
+          <option value="">Semua kecamatan</option>
+          {% for k in wilayah | map(attribute='nama_kecamatan') | unique %}
+            <option value="{{ k }}">{{ k }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="bidang-isian">
+        <label for="op-desa">Desa/Kelurahan</label>
+        <select id="op-desa" name="wilayah_id" required>
+          <option value="">— pilih desa/kelurahan —</option>
+          {% for w in wilayah %}
+            <option value="{{ w.id }}" data-kecamatan="{{ w.nama_kecamatan }}">
+              {{ w.nama_desa }} ({{ w.nama_kecamatan }})
+            </option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="bidang-isian">
+        <label for="op-jenis">Jenis Hak</label>
+        <select id="op-jenis" name="jenis_hak" required>
+          <option value="">— pilih jenis hak —</option>
+          {% for j in daftar_hak %}
+            <option value="{{ j.kode }}">{{ j.nama }}</option>
+          {% endfor %}
+        </select>
+      </div>
+    </div>
+
+    <div class="baris-borang tiga">
+      <div class="bidang-isian">
+        <label for="op-luas">Luas (m²)</label>
+        <input type="text" id="op-luas" name="luas" inputmode="numeric"
+               pattern="[0-9.]{1,10}" maxlength="10" placeholder="mis. 250">
+      </div>
+      <div class="bidang-isian">
+        <label for="op-tipologi">Tipologi Permasalahan</label>
+        <select id="op-tipologi" name="tipologi">
+          <option value="">— belum diisi —</option>
+          {% set ns = namespace(kel='') %}
+          {% for t in daftar_tipologi %}
+            {% if t.kelompok != ns.kel %}
+              {% if ns.kel %}</optgroup>{% endif %}
+              <optgroup label="{{ t.kelompok }}">
+              {% set ns.kel = t.kelompok %}
+            {% endif %}
+            <option value="{{ t.kode }}">{{ t.kode }}{{ ' — ' ~ t.nama if t.nama }}</option>
+          {% endfor %}
+          {% if ns.kel %}</optgroup>{% endif %}
+        </select>
+      </div>
+      <div class="bidang-isian">
+        <label for="op-catatan-kode">Catatan Kekurangan</label>
+        <select id="op-catatan-kode" name="catatan_kode">
+          <option value="">— belum diisi —</option>
+          {% for kel, daftar in grup_catatan %}
+            <optgroup label="{{ kel }}">
+              {% for c in daftar %}
+                <option value="{{ c.kode }}">{{ c.teks }}</option>
+              {% endfor %}
+            </optgroup>
+          {% endfor %}
+        </select>
+      </div>
+    </div>
+
+    <div class="bidang-isian isian-lebar">
+      <label for="op-catatan">Keterangan tambahan</label>
+      <textarea id="op-catatan" name="catatan" rows="2" class="lebar-penuh"
+                placeholder="boleh dikosongkan"></textarea>
+    </div>
+
+    <div class="kotak-pilihan">
+      <label class="pilih-besar">
+        <input type="checkbox" id="op-serah" name="sudah_diserahkan" value="1">
+        <span>Sertipikat sudah diserahkan ke pemohon</span>
+      </label>
+    </div>
+
+    <div class="deret-tombol" style="margin-top:12px">
+      <button type="submit" class="hijau">Save</button>
+      <button type="button" class="tombol kedua" id="op-reset">Bersihkan borang</button>
+    </div>
+  </form>
+</div>
+
+<div class="bilah-aksi">
+  <a href="/opname/export.xlsx" class="tombol kecil kedua">
+    Unduh matriks tipologi (Excel, semua tahun)
+  </a>
+</div>
+
+<div class="kartu rapat">
+  <div class="gulir">
+    <table id="tabel-opname">
+      <thead>
+        <tr>
+          <th>No.</th>
+          <th>Tahun Berkas</th>
+          <th>Nomor Berkas</th>
+          <th>Desa/Kelurahan</th>
+          <th>Jenis Hak</th>
+          <th>Nomor Hak</th>
+          <th>Nama Pemegang Hak</th>
+          <th class="angka">Luas (m²)</th>
+          <th>Sudah Diserahkan</th>
+          <th>Tipologi Permasalahan</th>
+          <th>Catatan Kekurangan</th>
+          <th class="tengah">Aksi</th>
+        </tr>
+      </thead>
+      <tbody id="tabel-opname-isi">{% include "bagian_opname_baris.html" %}</tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+(function () {
+  var TAHUN = {{ tahun }};
+
+  /* ---- Kecamatan menyaring pilihan Desa (opsional, keduanya tetap bisa ketik) ---- */
+  var kec = document.getElementById('op-kecamatan');
+  var desa = document.getElementById('op-desa');
+  kec.addEventListener('change', function () {
+    var pilih = kec.value;
+    Array.prototype.forEach.call(desa.options, function (opt) {
+      if (!opt.value) return;
+      opt.hidden = pilih !== '' && opt.dataset.kecamatan !== pilih;
+    });
+    if (desa.selectedOptions[0] && desa.selectedOptions[0].hidden) desa.value = '';
+  });
+
+  /* ---- Cari dari Daftar Residu: isi borang otomatis dari hasil yang dipilih ---- */
+  var cari = document.getElementById('cari-opname');
+  var hasil = document.getElementById('hasil-cari-opname');
+  var jeda = null;
+
+  function sel(tag, kelas, teks) {
+    var e = document.createElement(tag);
+    e.className = kelas;
+    e.textContent = teks;
+    return e;
+  }
+
+  function isiBorang(b) {
+    document.getElementById('op-berkas').value = b.nomor_berkas || '';
+    document.getElementById('op-hak').value = b.nomor_hak || '';
+    document.getElementById('op-pemegang').value = b.nama_pemegang || '';
+    if (b.wilayah_id) {
+      kec.value = b.nama_kecamatan || '';
+      Array.prototype.forEach.call(desa.options, function (opt) { opt.hidden = false; });
+      desa.value = String(b.wilayah_id);
+    }
+    if (b.jenis_hak) document.getElementById('op-jenis').value = b.jenis_hak;
+    document.getElementById('op-luas').value = b.luas != null ? b.luas : '';
+    document.getElementById('op-serah').checked = !!b.sudah_diserahkan;
+    var tipKode = (b.tipologi || '').split(',')[0].trim();
+    if (tipKode) document.getElementById('op-tipologi').value = tipKode;
+    var catKode = (b.catatan_kode || '').split(',')[0].trim();
+    if (catKode) document.getElementById('op-catatan-kode').value = catKode;
+    document.getElementById('op-catatan').value = b.catatan || '';
+    hasil.hidden = true;
+    hasil.innerHTML = '';
+    cari.value = '';
+  }
+
+  function tampilkan(daftar) {
+    hasil.innerHTML = '';
+    if (!daftar.length) {
+      hasil.innerHTML = '<div class="kosong kecil">Tidak ada data lama yang cocok — isi manual saja.</div>';
+      hasil.hidden = false;
+      return;
+    }
+    daftar.forEach(function (b) {
+      var baris = document.createElement('button');
+      baris.type = 'button';
+      baris.className = 'baris-tautan';
+      baris.appendChild(sel('span', 'mono', b.nomor_hak || b.nomor_berkas || '(tanpa nomor)'));
+      baris.appendChild(sel('span', 'kecil redup',
+        (b.tahun ? 'Tahun ' + b.tahun + ' · ' : '') + (b.nama_desa || '—') + ', Kec. ' + (b.nama_kecamatan || '—')
+        + (b.nama_pemegang ? ' · ' + b.nama_pemegang : '')));
+      baris.addEventListener('click', function () { isiBorang(b); });
+      hasil.appendChild(baris);
+    });
+    hasil.hidden = false;
+  }
+
+  cari.addEventListener('input', function () {
+    var q = cari.value.trim();
+    clearTimeout(jeda);
+    if (q.length < 2) { hasil.hidden = true; hasil.innerHTML = ''; return; }
+    jeda = setTimeout(function () {
+      fetch('/opname/cari.json?q=' + encodeURIComponent(q))
+        .then(function (r) { return r.json(); })
+        .then(tampilkan)
+        .catch(function () {
+          hasil.innerHTML = '<div class="kosong kecil">Pencarian gagal, coba lagi.</div>';
+          hasil.hidden = false;
+        });
+    }, 250);
+  });
+  cari.addEventListener('keydown', function (e) { if (e.key === 'Enter') e.preventDefault(); });
+  document.addEventListener('click', function (e) {
+    if (!hasil.contains(e.target) && e.target !== cari) hasil.hidden = true;
+  });
+
+  document.getElementById('op-reset').addEventListener('click', function () {
+    document.getElementById('borang-opname').reset();
+    Array.prototype.forEach.call(desa.options, function (opt) { opt.hidden = false; });
+  });
+
+  /* ---- Hapus baris lewat fetch, supaya tidak perlu memuat ulang halaman ---- */
+  document.getElementById('tabel-opname-isi').addEventListener('submit', function (e) {
+    var borang = e.target;
+    if (!borang.classList.contains('form-hapus-opname')) return;
+    e.preventDefault();
+    var baris = borang.closest('tr');
+    fetch(borang.action, { method: 'POST', headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+      .then(function (r) { return r.json(); })
+      .then(function (j) {
+        if (j.ok && baris) baris.remove();
+        else if (!j.ok) window.alert(j.pesan || 'Baris tidak bisa dihapus.');
+      })
+      .catch(function () { window.alert('Gagal menghapus, coba lagi.'); });
+  });
+
+  /* ---- Pembaruan berkala: orang lain bisa sedang mengisi tahun yang sama ---- */
+  var isi = document.getElementById('tabel-opname-isi');
+  var jumlah = document.getElementById('opname-jumlah');
+  function segarkan() {
+    fetch('/opname/' + TAHUN + '/baris.json')
+      .then(function (r) { return r.json(); })
+      .then(function (j) {
+        if (document.activeElement && isi.contains(document.activeElement)) return;
+        isi.innerHTML = j.html;
+        jumlah.textContent = j.jumlah;
+      })
+      .catch(function () {});
+  }
+  setInterval(segarkan, 5000);
+})();
+</script>
+
+{% endblock %}
