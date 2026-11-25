@@ -80,6 +80,8 @@
         <p class="grup-nama" id="g-res">Residu PTSL</p>
         {{ menu('/residu', 'Daftar residu', path == '/residu',
                 '<path d="M7 3h7l5 5v13H7z"/><path d="M14 3v5h5"/><path d="M10 13h6M10 17h4"/>') }}
+        {{ menu('/opname', 'Opname fisik residu', path.startswith('/opname'),
+                '<path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>') }}
         {{ menu('/residu/rekap', 'Rekap blanko', path.startswith('/residu/rekap'),
                 '<path d="m4 6 1.5 1.5L8 5"/><path d="M11 6h9"/><path d="m4 12 1.5 1.5L8 11"/><path d="M11 12h9"/><path d="m4 18 1.5 1.5L8 17"/><path d="M11 18h9"/>') }}
         {{ menu('/residu/tipologi/rekap', 'Rekap tipologi', path.startswith('/residu/tipologi'),

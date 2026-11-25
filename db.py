@@ -30,7 +30,7 @@ TIPOLOGI = [
     ("T2.1", "T2", 5), ("T2.2", "T2", 6), ("T2.3", "T2", 7), ("T2.4", "T2", 8),
     ("T3.1", "T3", 9), ("T3.2", "T3", 10), ("T3.3", "T3", 11), ("T3.4", "T3", 12),
     ("T4", "T4", 13), ("T5", "T5", 14), ("T6", "T6", 15), ("T7", "T7", 16),
-    ("T8", "T8", 17),
+    ("T8", "T8", 17), ("T9", "T9", 18),
 ]
 
 # Catatan baku residu: kalimat yang berulang-ulang ditulis petugas saat mengisi
@@ -293,6 +293,19 @@ CREATE TABLE IF NOT EXISTS log_aktivitas (
     rincian   TEXT
 );
 CREATE INDEX IF NOT EXISTS ix_log_waktu ON log_aktivitas (waktu DESC);
+
+-- tahun opname fisik residu K1 PTSL yang sudah dibuka (menu Opname Fisik
+-- Residu); target/realisasi hanya angka laporan, dicatat sekali saat tahunnya
+-- dibuka. Baris datanya sendiri disimpan di tabel residu (kolom sumber =
+-- SUMBER_OPNAME di app.py), bukan di sini, supaya tetap ikut tampil di
+-- Daftar Residu seperti baris residu lainnya.
+CREATE TABLE IF NOT EXISTS opname_tahun (
+    tahun         INTEGER PRIMARY KEY,
+    target_k1     INTEGER,
+    realisasi_k1  INTEGER,
+    dibuka_oleh   TEXT,
+    dibuka_pada   TEXT
+);
 """
 
 # daftar nilai baku untuk dropdown di aplikasi

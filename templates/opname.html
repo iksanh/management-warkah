@@ -1,0 +1,129 @@
+{% extends "dasar.html" %}
+{% block judul %}Opname Fisik Residu — Aplikasi Warkah{% endblock %}
+{% block isi %}
+
+<h1>Opname Fisik Residu K1 PTSL</h1>
+<p class="jelas">
+  Inventarisasi/stock opname fisik ulang berkas K1 PTSL {{ tahun_opname[0] }}–{{ tahun_opname[-1] }},
+  dikerjakan per tahun. Pilih tahun yang sudah dibuka untuk melanjutkan mengisi,
+  atau mulai opname tahun yang belum dibuka.
+</p>
+
+{% if tersimpan %}
+  <div class="pesan sukses">Tersimpan.</div>
+{% endif %}
+
+<div class="kartu rapat">
+  <div class="gulir">
+    <table>
+      <thead>
+        <tr>
+          <th>Tahun</th>
+          <th>Status</th>
+          <th class="angka">Target K1</th>
+          <th class="angka">Realisasi K1 (dilaporkan)</th>
+          <th class="angka">Sudah diinput di sini</th>
+          <th class="tengah">Aksi</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for t in tahun_list %}
+          <tr>
+            <td class="mono">{{ t.tahun }}</td>
+            <td>
+              {% if t.dibuka %}
+                <span class="tanda hijau">Dibuka</span>
+                <span class="kecil redup">
+                  oleh {{ t.dibuka.dibuka_oleh or '-' }}{{ ', ' ~ t.dibuka.dibuka_pada if t.dibuka.dibuka_pada }}
+                </span>
+              {% else %}
+                <span class="tanda abu">Belum dibuka</span>
+              {% endif %}
+            </td>
+            <td class="angka">
+              {{ t.dibuka.target_k1 | angka if t.dibuka and t.dibuka.target_k1 is not none else '—' }}
+            </td>
+            <td class="angka">
+              {{ t.dibuka.realisasi_k1 | angka if t.dibuka and t.dibuka.realisasi_k1 is not none else '—' }}
+            </td>
+            <td class="angka">{{ t.jumlah | angka }}</td>
+            <td class="tengah">
+              {% if t.dibuka %}
+                <a href="/opname/{{ t.tahun }}" class="tombol kecil kedua">Buka &rsaquo;</a>
+              {% else %}
+                <button type="button" class="tombol kecil mulai-opname" data-tahun="{{ t.tahun }}">
+                  Mulai Opname
+                </button>
+              {% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<dialog class="modal-rinci" id="dialog-buka-tahun" aria-labelledby="judul-buka-tahun">
+  <form method="post" action="/opname/buka">
+    <div class="kepala-modal">
+      <div class="kepala-modal-teks">
+        <h2 id="judul-buka-tahun">Mulai Opname Tahun <span id="teks-tahun-dialog"></span></h2>
+      </div>
+      <div class="kepala-modal-alat">
+        <button type="button" class="tombol-alat tutup-modal" aria-label="Tutup" title="Tutup (Esc)">
+          <svg class="ikon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>
+        </button>
+      </div>
+    </div>
+    <div class="badan-modal">
+      <input type="hidden" name="tahun" id="isian-tahun-dialog">
+      <p class="petunjuk">
+        Target dan realisasi dicatat sekali saat tahun ini dibuka. Boleh dikosongkan
+        dan diisi belakangan — tidak memengaruhi isian baris di halaman berikutnya,
+        yang akan dimulai dari tabel kosong.
+      </p>
+      <div class="baris-borang">
+        <div class="bidang-isian">
+          <label for="target-k1">Target K1</label>
+          <input type="text" id="target-k1" name="target_k1" inputmode="numeric" placeholder="mis. 150">
+        </div>
+        <div class="bidang-isian">
+          <label for="realisasi-k1">Realisasi K1 (dilaporkan)</label>
+          <input type="text" id="realisasi-k1" name="realisasi_k1" inputmode="numeric" placeholder="mis. 40">
+        </div>
+      </div>
+    </div>
+    <div class="kaki-modal">
+      <div class="kaki-kabar"></div>
+      <div class="kaki-tombol">
+        <button type="button" class="tombol kedua tutup-modal">Batal</button>
+        <button type="submit" class="hijau">Mulai Opname</button>
+      </div>
+    </div>
+  </form>
+</dialog>
+
+<script>
+(function () {
+  var dialog = document.getElementById('dialog-buka-tahun');
+  var isian = document.getElementById('isian-tahun-dialog');
+  var teks = document.getElementById('teks-tahun-dialog');
+  function tutup() {
+    dialog.classList.remove('tampil');
+    setTimeout(function () { dialog.close(); }, 180);
+  }
+  document.querySelectorAll('.mulai-opname').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      isian.value = btn.dataset.tahun;
+      teks.textContent = btn.dataset.tahun;
+      dialog.showModal();
+      requestAnimationFrame(function () { dialog.classList.add('tampil'); });
+    });
+  });
+  dialog.querySelectorAll('.tutup-modal').forEach(function (btn) {
+    btn.addEventListener('click', tutup);
+  });
+})();
+</script>
+
+{% endblock %}

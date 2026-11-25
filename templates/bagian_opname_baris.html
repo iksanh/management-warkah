@@ -1,0 +1,40 @@
+{# Baris tabel Opname Fisik Residu satu tahun. Dipakai saat halaman pertama
+   kali digambar maupun oleh pembaruan berkala (polling) dari opname_tahun.html,
+   supaya kedua jalur selalu menghasilkan markup tabel yang sama persis. #}
+{% for r in baris %}
+<tr data-id="{{ r.id }}">
+  <td class="tengah">{{ loop.index }}</td>
+  <td class="mono">{{ r.tahun }}</td>
+  <td class="mono kecil">{{ r.nomor_berkas or '—' }}</td>
+  <td>
+    {{ r.nama_desa or r.desa_teks or '—' }}
+    <span class="kecil redup"> · {{ r.nama_kecamatan or r.kecamatan_teks or '—' }}</span>
+  </td>
+  <td class="kecil">{{ r.jenis_hak_teks or r.jenis_hak or '—' }}</td>
+  <td class="mono nowrap">{{ r.nomor_hak or r.nomor_hak_asli or '—' }}</td>
+  <td class="kecil">{{ r.nama_pemegang or '—' }}</td>
+  <td class="angka">{{ r.luas | angka if r.luas else '—' }}</td>
+  <td class="tengah">
+    {% if r.sudah_diserahkan %}
+      <span class="tanda hijau">Sudah</span>
+    {% else %}
+      <span class="tanda abu">Belum</span>
+    {% endif %}
+  </td>
+  <td class="kecil nowrap">
+    {% if r.tipologi %}<span class="tanda abu">{{ r.tipologi }}</span>{% else %}<span class="redup">—</span>{% endif %}
+  </td>
+  <td class="kecil">
+    {{ peta_catatan.get(r.catatan_kode, r.catatan_kode) if r.catatan_kode else (r.catatan or '—') }}
+  </td>
+  <td class="tengah">
+    <form method="post" action="/opname/{{ tahun }}/{{ r.id }}/hapus"
+          class="form-hapus-opname" style="display:inline"
+          data-konfirmasi="Hapus baris ini dari opname {{ tahun }}?">
+      <button type="submit" class="tombol kecil kedua">Hapus</button>
+    </form>
+  </td>
+</tr>
+{% else %}
+<tr><td colspan="12" class="kosong">Belum ada baris yang diisi untuk tahun ini.</td></tr>
+{% endfor %}
