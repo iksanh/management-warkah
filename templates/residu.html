@@ -600,6 +600,9 @@ var MODAL = (function () {
     if (!dialog || dialog.open) { return; }
     siapkan(dialog);
     dialog.showModal();
+    // fokus awal di tab yang aktif: panah kiri/kanan langsung pindah tab
+    var tab = dialog.querySelector('.tab-modal [aria-selected="true"]');
+    if (tab) { tab.focus({ preventScroll: true }); }
     document.body.classList.add('modal-terbuka');
     requestAnimationFrame(function () { dialog.classList.add('tampil'); });
   }
@@ -840,6 +843,7 @@ document.querySelectorAll('.modal-rinci').forEach(function (dialog) {
         jadikanBawaan(borang);
         dialog._awal = potretBorang(borang);
         dialog.querySelector('.kabar-ubah').hidden = true;
+        dialog.dispatchEvent(new CustomEvent('tersimpan'));
 
         kabar.className = 'kabar-simpan berhasil';
         kabar.textContent = '✓ Tersimpan';
@@ -975,7 +979,9 @@ document.querySelectorAll('.modal-rinci').forEach(function (dialog) {
     var dialog = kotak.closest('.modal-rinci');
     var panel = kotak.closest('.panel-catatan') || kotak;
     var tindak = borang.querySelector('select[name="tindak_lanjut"]');
-    var jml = panel.querySelector('.jml-catatan');
+    // jumlah tercentang tampil di judul bagian dan di tab Catatan
+    var jml = (dialog || panel).querySelectorAll('.jml-catatan');
+    var tlSekarang = panel.querySelector('.tl-sekarang');
     var tombol = panel.querySelector('.semua-catatan');
     var semua = false;
 
@@ -986,9 +992,9 @@ document.querySelectorAll('.modal-rinci').forEach(function (dialog) {
         var tercentang = g.querySelector('input[type="checkbox"]:checked');
         g.hidden = !(semua || kel === 'Umum' || kel === pilihan || tercentang);
       });
-      if (jml) {
-        jml.textContent = kotak.querySelectorAll('input[type="checkbox"]:checked').length;
-      }
+      var n = kotak.querySelectorAll('input[type="checkbox"]:checked').length;
+      jml.forEach(function (el) { el.textContent = n; });
+      if (tlSekarang) { tlSekarang.textContent = pilihan || 'belum dipilih'; }
     }
 
     if (tombol) {
@@ -1002,6 +1008,104 @@ document.querySelectorAll('.modal-rinci').forEach(function (dialog) {
     kotak.addEventListener('change', segarkan);
     if (dialog) { dialog.addEventListener('segarkan', segarkan); }
     segarkan();
+  });
+})();
+
+// Tab di dialog Ubah: Data berkas | Tindak lanjut | Catatan.
+// - tab terakhir yang dipakai diingat (localStorage) dan dipakai lagi saat
+//   dialog berikutnya dibuka, jadi "Simpan & berikutnya" tetap di tab sama
+// - titik manila pada tab = ada isian di tab itu yang belum disimpan,
+//   dibandingkan dengan potret borang saat dibuka / terakhir disimpan
+// - isian wajib yang belum diisi di tab lain (mis. tanggal serah) membuat
+//   tab itu dibuka dulu supaya peramban bisa menunjukkan isiannya
+// - panah kiri/kanan di daftar tab, atau Alt+1/2/3 di mana saja di dialog
+(function () {
+  var KUNCI = 'residu-tab-ubah';
+  var URUT = ['data', 'kerja', 'catatan'];
+
+  function ingatan() {
+    try { var t = localStorage.getItem(KUNCI); return URUT.indexOf(t) >= 0 ? t : null; }
+    catch (e) { return null; }
+  }
+
+  document.querySelectorAll('.modal-rinci').forEach(function (dialog) {
+    var daftar = dialog.querySelector('.tab-modal');
+    if (!daftar) { return; }
+    var borang = dialog.querySelector('form');
+    var badan = dialog.querySelector('.badan-modal');
+    var tombol = Array.prototype.slice.call(daftar.querySelectorAll('[role="tab"]'));
+    var panel = {};
+    dialog.querySelectorAll('.panel-modal[data-tab]').forEach(function (p) { panel[p.dataset.tab] = p; });
+
+    function pilih(nama, fokus, simpanIngatan) {
+      if (!panel[nama]) { return; }
+      tombol.forEach(function (t) {
+        var aktif = t.dataset.tab === nama;
+        t.setAttribute('aria-selected', aktif ? 'true' : 'false');
+        t.tabIndex = aktif ? 0 : -1;
+        if (aktif && fokus) { t.focus(); }
+      });
+      Object.keys(panel).forEach(function (k) { panel[k].hidden = k !== nama; });
+      if (badan) { badan.scrollTop = 0; }
+      if (simpanIngatan) { try { localStorage.setItem(KUNCI, nama); } catch (e) {} }
+    }
+
+    // nilai isian per nama, dari teks potret borang
+    function nilai(params, nama) { return params.getAll(nama).join('\u0001'); }
+    function perbaruiTitik() {
+      var awal = new URLSearchParams(dialog._awal || '');
+      var kini = new URLSearchParams(potretBorang(borang));
+      tombol.forEach(function (t) {
+        var p = panel[t.dataset.tab];
+        var nama = {};
+        p.querySelectorAll('[name]').forEach(function (el) { nama[el.name] = 1; });
+        var ubah = Object.keys(nama).some(function (n) { return nilai(awal, n) !== nilai(kini, n); });
+        t.querySelector('.titik-ubah').hidden = !ubah;
+      });
+    }
+
+    tombol.forEach(function (t, i) {
+      t.addEventListener('click', function () { pilih(t.dataset.tab, false, true); });
+      t.addEventListener('keydown', function (e) {
+        var arah = { ArrowRight: 1, ArrowLeft: -1 }[e.key];
+        if (e.key === 'Home') { arah = -i; } else if (e.key === 'End') { arah = tombol.length - 1 - i; }
+        if (arah === undefined) { return; }
+        e.preventDefault();
+        var ke = tombol[(i + arah + tombol.length) % tombol.length];
+        pilih(ke.dataset.tab, true, true);
+      });
+    });
+
+    dialog.addEventListener('keydown', function (e) {
+      if (!e.altKey || e.ctrlKey || e.metaKey) { return; }
+      var i = ['1', '2', '3'].indexOf(e.key);
+      if (i < 0) { return; }
+      e.preventDefault();
+      pilih(URUT[i], true, true);
+    });
+
+    // isian wajib di tab tersembunyi: buka tabnya dulu
+    borang.addEventListener('invalid', function (e) {
+      var p = e.target.closest('.panel-modal[data-tab]');
+      if (p && p.hidden) {
+        pilih(p.dataset.tab, false, false);
+        setTimeout(function () { e.target.reportValidity(); }, 0);
+      }
+    }, true);
+
+    borang.addEventListener('input', perbaruiTitik);
+    borang.addEventListener('change', perbaruiTitik);
+    // "segarkan" datang saat dialog disiapkan untuk dibuka (belum open),
+    // sesudah perubahan dibuang, dan sesudah tersimpan
+    dialog.addEventListener('segarkan', function () {
+      if (!dialog.open) { pilih(ingatan() || 'data', false, false); }
+      perbaruiTitik();
+    });
+    dialog.addEventListener('tersimpan', perbaruiTitik);
+
+    daftar.hidden = false;
+    dialog.classList.add('bertab');
+    pilih(ingatan() || 'data', false, false);
   });
 })();
 

@@ -2,16 +2,22 @@
    <dialog> tidak sah berada di dalam <tr>, lalu dibuka lewat tombol Ubah
    pada barisnya.
 
-   Susunannya tiga panel yang masing-masing bisa digulir sendiri:
-     1. Data berkas  — data hasil impor (hanya dibaca), koreksi pemegang/luas,
-                       dan isian untuk kolom yang masih kosong
-     2. Tindak lanjut — status, penyerahan sertipikat, berkas tidak ditemukan
-     3. Catatan      — daftar catatan baku yang tinggal dicentang
-   Di layar sempit ketiganya menumpuk jadi satu lajur.
+   Isinya tiga tab, satu tampil dalam satu waktu memakai lebar penuh:
+     1. Data berkas   — kiri: data hasil impor (hanya dibaca);
+                        kanan: koreksi pemegang/luas + lengkapi kolom kosong
+     2. Tindak lanjut — kiri: status, tindak lanjut, petugas;
+                        kanan: penyerahan sertipikat, berkas tidak ditemukan
+     3. Catatan       — kiri: catatan baku dicentang; kanan: keterangan bebas
+   Tab yang terakhir dibuka diingat, jadi "Simpan & berikutnya" tetap di tab
+   yang sama. Tanpa JavaScript ketiganya tampil berurutan.
 
    Nama isian, kelas, dan atribut data-* dipakai oleh JavaScript di
    residu.html dan oleh server; jangan diganti tanpa menyesuaikan keduanya. #}
 {% set dipilih = (r.catatan_kode or '').split(',') | select | list %}
+{% set kosong = [] %}
+{% for k in ['tahun', 'nomor_berkas', 'no_seri_blanko', 'tipologi', 'keterangan'] %}
+  {% if r[k] is none or (r[k] | string | trim) == '' %}{% set _ = kosong.append(k) %}{% endif %}
+{% endfor %}
 <dialog class="modal-rinci" id="rinci-{{ r.id }}" data-id="{{ r.id }}"
         aria-labelledby="judul-rinci-{{ r.id }}">
   <form method="post" action="/residu/{{ r.id }}/simpan"
@@ -43,18 +49,44 @@
       </div>
     </div>
 
+    {# ------------------------------------------------------- daftar tab
+       disembunyikan sampai JavaScript siap; tanpa JS panel tampil berurutan #}
+    <div class="tab-modal" role="tablist" aria-label="Bagian isian" hidden>
+      <button type="button" role="tab" id="tb-data-{{ r.id }}" data-tab="data"
+              aria-controls="pd-{{ r.id }}" aria-selected="false" tabindex="-1">
+        Data berkas
+        {% if kosong %}<span class="lencana manila" title="kolom yang masih kosong">{{ kosong | length }} kosong</span>{% endif %}
+        <span class="titik-ubah" title="ada perubahan belum disimpan" hidden></span>
+      </button>
+      <button type="button" role="tab" id="tb-kerja-{{ r.id }}" data-tab="kerja"
+              aria-controls="pk-{{ r.id }}" aria-selected="false" tabindex="-1">
+        Tindak lanjut
+        <span class="titik-ubah" title="ada perubahan belum disimpan" hidden></span>
+      </button>
+      <button type="button" role="tab" id="tb-catatan-{{ r.id }}" data-tab="catatan"
+              aria-controls="pc-{{ r.id }}" aria-selected="false" tabindex="-1">
+        Catatan
+        <span class="lencana jml-catatan">{{ dipilih | length }}</span>
+        <span class="titik-ubah" title="ada perubahan belum disimpan" hidden></span>
+      </button>
+    </div>
+
     <div class="badan-modal">
 
       {# ------------------------------------------------ panel 1: data berkas #}
-      <section class="panel-modal panel-data" aria-labelledby="pd-{{ r.id }}">
-        <h3 class="judul-bagian" id="pd-{{ r.id }}">Data berkas</h3>
+      <section class="panel-modal panel-data" id="pd-{{ r.id }}" data-tab="data"
+               role="tabpanel" aria-labelledby="tb-data-{{ r.id }}">
+        <h3 class="judul-panel">Data berkas</h3>
+        <div class="isi-dua">
+        <div class="kolom-baca">
+        <h4 class="sub-bagian">Data hasil impor <span class="redup">· hanya dibaca</span></h4>
         <dl class="rincian-ringkas">
-          <div class="penuh"><dt>Nomor hak asli</dt><dd class="mono nowrap">{{ r.nomor_hak_asli or "—" }}</dd></div>
+          <div><dt>Nomor hak asli</dt><dd class="mono">{{ r.nomor_hak_asli or "—" }}</dd></div>
+          <div><dt>Nomor berkas</dt><dd class="mono">{{ r.nomor_berkas or '—' }}</dd></div>
           <div><dt>Surat ukur</dt><dd>{{ r.surat_ukur or '—' }}</dd></div>
           <div><dt>NIB</dt><dd class="mono">{{ r.nib or '—' }}</dd></div>
-          <div><dt>Nomor berkas</dt><dd class="mono">{{ r.nomor_berkas or '—' }}</dd></div>
           <div class="penuh"><dt>Pemilik di KKP</dt><dd>{{ r.pemilik_akhir or '—' }}</dd></div>
-          <div class="penuh">
+          <div>
             <dt>Lokasi warkah</dt>
             <dd>
               {% set lok = [r.ruang, r.lemari, r.rak, r.box] | select | list %}
@@ -62,7 +94,7 @@
               {% else %}<span class="redup">belum diisi</span>{% endif %}
             </dd>
           </div>
-          <div class="penuh">
+          <div>
             <dt>Blanko</dt>
             <dd>
               {% if r.blanko_ada == 'Ada' %}<span class="tanda hijau">Ada</span>
@@ -85,10 +117,12 @@
             </dd>
           </div>
         </dl>
+        </div>
 
+        <div class="kolom-isi">
         {# nama pemegang & luas selalu tampil dan boleh dikoreksi, walau
            sudah terisi; isian yang dikosongkan dianggap tidak diubah #}
-        <h3 class="judul-bagian">Koreksi data sertipikat</h3>
+        <h4 class="sub-bagian">Koreksi data sertipikat</h4>
         <div class="bidang-isian">
           <label for="nm-{{ r.id }}">Nama pemegang</label>
           <input type="text" id="nm-{{ r.id }}" name="nama_pemegang"
@@ -107,10 +141,6 @@
            langsung tampil karena paling sering kosong; kolom lain dibuka
            lewat tombol "+" supaya borangnya tetap ringkas. Nilai yang sudah
            ada tidak ditimpa dari sini. #}
-        {% set kosong = [] %}
-        {% for k in ['tahun', 'nomor_berkas', 'no_seri_blanko', 'tipologi', 'keterangan'] %}
-          {% if r[k] is none or (r[k] | string | trim) == '' %}{% set _ = kosong.append(k) %}{% endif %}
-        {% endfor %}
         {% set tambahan = kosong | reject('in', ['tahun', 'nomor_berkas']) | list %}
         {% set label_kolom = {'no_seri_blanko': 'No. seri blanko', 'tipologi': 'Tipologi',
                               'keterangan': 'Keterangan berkas'} %}
@@ -178,15 +208,21 @@
             <p class="petunjuk">Boleh dikosongkan. Sekali tersimpan, isian ini terkunci.</p>
           </fieldset>
         {% endif %}
+        </div>
+        </div>
       </section>
 
       {# --------------------------------------------- panel 2: tindak lanjut #}
-      <section class="panel-modal panel-kerja" aria-labelledby="pk-{{ r.id }}">
-        <h3 class="judul-bagian" id="pk-{{ r.id }}">Tindak lanjut</h3>
-        <div class="baris-borang tiga">
+      <section class="panel-modal panel-kerja" id="pk-{{ r.id }}" data-tab="kerja"
+               role="tabpanel" aria-labelledby="tb-kerja-{{ r.id }}">
+        <h3 class="judul-panel">Tindak lanjut</h3>
+        <div class="isi-dua">
+        <div class="kolom-isi">
+        <h4 class="sub-bagian">Pengerjaan</h4>
+        <div class="tumpuk-isian">
           <div class="bidang-isian">
             <label for="status-{{ r.id }}">Status</label>
-            <select id="status-{{ r.id }}" name="status" autofocus>
+            <select id="status-{{ r.id }}" name="status">
               <option value="">— belum diisi —</option>
               {% for s in pilihan.status_residu %}
                 <option value="{{ s }}" {{ 'selected' if r.status == s }}>{{ s }}</option>
@@ -217,8 +253,13 @@
             {% endif %}
           </div>
         </div>
+        <p class="petunjuk">
+          Pilihan tindak lanjut menentukan kelompok catatan yang tampil di tab Catatan.
+        </p>
+        </div>
 
-        <h3 class="judul-bagian">Penyerahan sertipikat</h3>
+        <div class="kolom-isi">
+        <h4 class="sub-bagian">Penyerahan sertipikat</h4>
         <div class="kotak-pilihan kotak-serah">
           <label class="pilih-besar">
             <input type="checkbox" name="sudah_diserahkan" value="1"
@@ -244,7 +285,7 @@
           </p>
         </div>
 
-        <h3 class="judul-bagian">Kondisi berkas</h3>
+        <h4 class="sub-bagian">Kondisi berkas</h4>
         {# berkas yang dicari tetapi tidak ada: barisnya tetap disimpan,
            hanya dikeluarkan dari daftar residu aktif #}
         <fieldset class="kotak-pilihan tanda-tidak-ditemukan">
@@ -272,20 +313,27 @@
             {% endif %}
           </p>
         </fieldset>
+        </div>
+        </div>
       </section>
 
       {# -------------------------------------------------- panel 3: catatan #}
-      <section class="panel-modal panel-catatan" aria-labelledby="pc-{{ r.id }}">
+      <section class="panel-modal panel-catatan" id="pc-{{ r.id }}" data-tab="catatan"
+               role="tabpanel" aria-labelledby="tb-catatan-{{ r.id }}">
+        <h3 class="judul-panel">Catatan</h3>
+        <div class="isi-dua lebar-kiri">
+        <div class="kolom-isi">
         <div class="judul-bagian-baris">
-          <h3 class="judul-bagian" id="pc-{{ r.id }}">
-            Catatan <span class="tanda biru jml-catatan-tanda"><span class="jml-catatan">{{ dipilih | length }}</span> dipilih</span>
-          </h3>
+          <h4 class="sub-bagian">
+            Catatan baku <span class="tanda biru jml-catatan-tanda"><span class="jml-catatan">{{ dipilih | length }}</span> dipilih</span>
+          </h4>
           <button type="button" class="tombol kecil kedua semua-catatan">
             Tampilkan semua kelompok
           </button>
         </div>
         <p class="petunjuk">
-          Yang tampil: kelompok sesuai tindak lanjut yang dipilih, ditambah kelompok Umum.
+          Yang tampil: kelompok Umum dan kelompok tindak lanjut
+          <b class="tl-sekarang">{{ r.tindak_lanjut or 'belum dipilih' }}</b>.
         </p>
         <div class="catatan-cepat" data-baris="{{ r.id }}">
           {% for kel, daftar in grup_catatan %}
@@ -318,11 +366,15 @@
             </p>
           {% endif %}
         </div>
-        <div class="bidang-isian">
-          <label for="ct-{{ r.id }}">Keterangan tambahan</label>
-          <textarea id="ct-{{ r.id }}" name="catatan" rows="3"
-                    class="lebar-penuh" placeholder="boleh beberapa baris"
-                    >{{ r.catatan or '' }}</textarea>
+        </div>
+
+        <div class="kolom-isi">
+        <h4 class="sub-bagian"><label for="ct-{{ r.id }}">Keterangan tambahan</label></h4>
+        <textarea id="ct-{{ r.id }}" name="catatan" rows="6"
+                  class="lebar-penuh" placeholder="catatan bebas, boleh beberapa baris"
+                  >{{ r.catatan or '' }}</textarea>
+        <p class="petunjuk">Dipakai bila tidak ada catatan baku yang pas.</p>
+        </div>
         </div>
       </section>
     </div>
@@ -332,7 +384,7 @@
       <div class="kaki-kabar">
         <span class="kabar-simpan" role="status" aria-live="polite"></span>
         <span class="kabar-ubah" hidden>Ada perubahan yang belum disimpan</span>
-        <span class="pintasan">Ctrl + Enter untuk menyimpan</span>
+        <span class="pintasan">Ctrl + Enter simpan · Alt + 1/2/3 pindah tab</span>
       </div>
       <div class="kaki-tombol">
         <button type="button" class="tombol kedua tutup-modal">Batal</button>
