@@ -25,12 +25,21 @@ PETUGAS_AWAL = ["Iman", "Rian", "Mimin", "Bento"]
 
 # tipologi permasalahan residu PTSL; kolom "nama" diisi/diubah lewat halaman
 # Residu karena keterangan resminya tidak ikut tertulis di berkas Excel
+# Kode bare "T1"/"T2"/"T3" bukan dari pedoman resmi (Lampiran I Surat Sekjen
+# ATR/BPN No. HR.01/2123-100/XI/2022 hanya mengenal T1.1-T1.4 dst sebagai kode
+# yang sah), tapi ditambahkan sebagai pilihan umum setingkat T4-T9 supaya
+# petugas tetap bisa mencatat "ini masalah kelompok T1" sebelum sempat
+# memastikan sub-kode yang tepat -- sama seperti kode tambahan T3.4 di bawah
+# yang juga sudah lebih dulu dipakai kantor di luar pedoman resmi.
 TIPOLOGI = [
     ("T1.1", "T1", 1), ("T1.2", "T1", 2), ("T1.3", "T1", 3), ("T1.4", "T1", 4),
-    ("T2.1", "T2", 5), ("T2.2", "T2", 6), ("T2.3", "T2", 7), ("T2.4", "T2", 8),
-    ("T3.1", "T3", 9), ("T3.2", "T3", 10), ("T3.3", "T3", 11), ("T3.4", "T3", 12),
-    ("T4", "T4", 13), ("T5", "T5", 14), ("T6", "T6", 15), ("T7", "T7", 16),
-    ("T8", "T8", 17), ("T9", "T9", 18),
+    ("T1", "T1", 5),
+    ("T2.1", "T2", 6), ("T2.2", "T2", 7), ("T2.3", "T2", 8), ("T2.4", "T2", 9),
+    ("T2", "T2", 10),
+    ("T3.1", "T3", 11), ("T3.2", "T3", 12), ("T3.3", "T3", 13), ("T3.4", "T3", 14),
+    ("T3", "T3", 15),
+    ("T4", "T4", 16), ("T5", "T5", 17), ("T6", "T6", 18), ("T7", "T7", 19),
+    ("T8", "T8", 20), ("T9", "T9", 21),
 ]
 
 # Catatan baku residu: kalimat yang berulang-ulang ditulis petugas saat mengisi
@@ -321,6 +330,21 @@ CREATE TABLE IF NOT EXISTS opname_tahun (
     dibuka_oleh   TEXT,
     dibuka_pada   TEXT
 );
+
+-- baris opname (per desa dan/atau per nomor berkas, per tahun) yang
+-- dikecualikan Admin dari skor Rekap Petugas -- cuma koreksi skor, baris
+-- residu dan hitungan "Sudah diinput" di menu Opname Fisik Residu tidak
+-- disentuh sama sekali (lihat opname_kecuali_tambah/hitung_rekap_petugas di
+-- app.py)
+CREATE TABLE IF NOT EXISTS opname_kecuali (
+    id            INTEGER PRIMARY KEY,
+    tahun         INTEGER NOT NULL,
+    wilayah_id    INTEGER REFERENCES wilayah (id),
+    nomor_berkas  TEXT,
+    keterangan    TEXT,
+    dibuat_oleh   TEXT,
+    dibuat_pada   TEXT
+);
 """
 
 # daftar nilai baku untuk dropdown di aplikasi
@@ -396,6 +420,11 @@ def migrasi(kon):
     kon.execute("CREATE INDEX IF NOT EXISTS ix_residu_blanko ON residu (blanko_ada)")
     kon.execute("CREATE INDEX IF NOT EXISTS ix_residu_tidak_ditemukan "
                 "ON residu (tidak_ditemukan)")
+    # urutan tipologi ditata ulang di sini (bukan cuma lewat INSERT OR IGNORE
+    # di siapkan()) supaya basis data lama yang kodenya sudah ada ikut urutan
+    # terbaru juga -- termasuk kode umum T1/T2/T3 yang baru ditambahkan
+    kon.executemany("UPDATE tipologi SET urut = ? WHERE kode = ?",
+                    [(urut, kode) for kode, _, urut in TIPOLOGI])
     kon.commit()
 
 

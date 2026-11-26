@@ -3774,6 +3774,36 @@ async def opname_hapus_baris(request: Request):
     return JSONResponse({"ok": True})
 
 
+def muat_kecuali(kon):
+    """Aturan pengecualian skor Admin, plus baris log yang harus dilewati.
+
+    Tiap aturan mengecualikan satu desa dan/atau satu nomor berkas pada satu
+    tahun. Baris log yang harus dilewati dicari lewat baris residu opname yang
+    SAAT INI cocok dengan aturan itu (bukan lewat bidang_id, yang biasanya
+    kosong untuk baris opname) — kuncinya teks "rincian" log, persis seperti
+    yang ditulis tulis_log() saat baris itu dibuat (lihat opname_simpan_baris).
+    Baris di menu Opname Fisik Residu dan hitungan "Sudah diinput" di sana
+    sama sekali tidak tersentuh; ini cuma menyaring skor Rekap Petugas.
+    """
+    aturan = kon.execute(
+        "SELECT k.*, w.nama_desa, w.nama_kecamatan FROM opname_kecuali k "
+        "LEFT JOIN wilayah w ON w.id = k.wilayah_id ORDER BY k.tahun, k.id").fetchall()
+    dilewati = set()
+    for a in aturan:
+        syarat, par = ["sumber = ?", "tahun = ?"], [SUMBER_OPNAME, str(a["tahun"])]
+        if a["wilayah_id"]:
+            syarat.append("wilayah_id = ?")
+            par.append(a["wilayah_id"])
+        if a["nomor_berkas"]:
+            syarat.append("nomor_berkas = ?")
+            par.append(a["nomor_berkas"])
+        for r in kon.execute(
+                "SELECT nomor_hak, nomor_berkas FROM residu WHERE " + " AND ".join(syarat), par):
+            kunci = r["nomor_hak"] or r["nomor_berkas"] or "-"
+            dilewati.add((str(a["tahun"]), "nomor hak %s" % kunci))
+    return aturan, dilewati
+
+
 def hitung_rekap_petugas(kon):
     """Rekap per petugas: berapa baris opname yang sudah diinput tiap orang.
 
@@ -3784,34 +3814,56 @@ def hitung_rekap_petugas(kon):
     "Tambah baris ..." dicatat sekali saat baris itu pertama kali dibuat dan
     tidak pernah berubah lagi, jadi tetap benar siapa pengisinya walau baris
     residunya belakangan diedit orang lain — atau sudah dihapus lagi.
+
+    Baris yang cocok dengan aturan opname_kecuali (lihat muat_kecuali) tidak
+    ikut dihitung di sini -- murni koreksi skor atas permintaan Admin, tidak
+    memengaruhi hitungan di menu Opname Fisik Residu sama sekali.
     """
-    baris = kon.execute(
-        "SELECT COALESCE(petugas, '(tanpa nama)') petugas, COUNT(*) jumlah, "
-        "COUNT(DISTINCT substr(aksi, -4)) tahun, "
-        "COUNT(DISTINCT substr(waktu, 1, 10)) hari, "
-        "MIN(substr(waktu, 1, 10)) tgl_awal, "
-        "MAX(substr(waktu, 1, 10)) tgl_akhir "
-        "FROM log_aktivitas WHERE aksi LIKE ? "
-        "GROUP BY petugas ORDER BY jumlah DESC, petugas",
-        (AKSI_TAMBAH_OPNAME + "%",)).fetchall()
-    total = kon.execute(
-        "SELECT COUNT(*) n FROM log_aktivitas WHERE aksi LIKE ?",
-        (AKSI_TAMBAH_OPNAME + "%",)).fetchone()["n"]
-    return baris, total
+    aturan, dilewati = muat_kecuali(kon)
+    per_petugas = {}
+    for r in kon.execute(
+            "SELECT petugas, waktu, aksi, rincian FROM log_aktivitas WHERE aksi LIKE ?",
+            (AKSI_TAMBAH_OPNAME + "%",)):
+        tahun = r["aksi"][-4:]
+        if (tahun, r["rincian"]) in dilewati:
+            continue
+        p = per_petugas.setdefault(r["petugas"] or "(tanpa nama)",
+                                   {"jumlah": 0, "tahun": set(), "hari": set(),
+                                    "tgl_awal": None, "tgl_akhir": None})
+        p["jumlah"] += 1
+        p["tahun"].add(tahun)
+        hari = r["waktu"][:10]
+        p["hari"].add(hari)
+        if p["tgl_awal"] is None or hari < p["tgl_awal"]:
+            p["tgl_awal"] = hari
+        if p["tgl_akhir"] is None or hari > p["tgl_akhir"]:
+            p["tgl_akhir"] = hari
+
+    baris = sorted(
+        ({"petugas": k, "jumlah": v["jumlah"], "tahun": len(v["tahun"]),
+          "hari": len(v["hari"]), "tgl_awal": v["tgl_awal"], "tgl_akhir": v["tgl_akhir"]}
+         for k, v in per_petugas.items()),
+        key=lambda b: (-b["jumlah"], b["petugas"]))
+    total = sum(b["jumlah"] for b in baris)
+    return baris, total, aturan
 
 
 async def opname_rekap_petugas(request: Request):
     kon = db.sambung()
-    baris, total = hitung_rekap_petugas(kon)
+    baris, total, aturan = hitung_rekap_petugas(kon)
+    wilayah = kon.execute(
+        "SELECT id, nama_kecamatan, nama_desa FROM wilayah "
+        "ORDER BY nama_kecamatan, nama_desa").fetchall()
     kon.close()
     return templates.TemplateResponse(request, "opname_rekap.html", konteks(
-        request, baris=baris, total=total))
+        request, baris=baris, total=total, aturan=aturan, wilayah=wilayah,
+        tahun_opname=TAHUN_OPNAME, tersimpan=request.query_params.get("tersimpan")))
 
 
 async def opname_rekap_json(request: Request):
     """Rekap per petugas dalam JSON, untuk papan peringkat yang diperbarui berkala."""
     kon = db.sambung()
-    baris, total = hitung_rekap_petugas(kon)
+    baris, total, _ = hitung_rekap_petugas(kon)
     kon.close()
     return JSONResponse({
         "total": total,
@@ -3819,6 +3871,52 @@ async def opname_rekap_json(request: Request):
                   "hari": b["hari"], "tgl_awal": b["tgl_awal"], "tgl_akhir": b["tgl_akhir"]}
                  for b in baris],
     })
+
+
+async def opname_kecuali_tambah(request: Request):
+    """Admin: kecualikan satu desa dan/atau satu nomor berkas (per tahun) dari skor."""
+    if not is_admin(request):
+        return tolak(request, "Mengecualikan dari skor hanya bisa dilakukan oleh Admin.")
+    form = await request.form()
+    try:
+        tahun = int(form.get("tahun"))
+        if tahun not in TAHUN_OPNAME:
+            raise ValueError
+    except (TypeError, ValueError):
+        return tolak(request, "Tahun tidak sah.")
+    wid = form.get("wilayah_id")
+    wilayah_id = int(wid) if (wid or "").isdigit() else None
+    nomor_berkas = (form.get("nomor_berkas") or "").strip()[:100] or None
+    keterangan = (form.get("keterangan") or "").strip()[:300] or None
+    if not wilayah_id and not nomor_berkas:
+        return tolak(request, "Isi Desa/Kelurahan atau Nomor Berkas, minimal salah satu.")
+
+    kon = db.sambung()
+    if wilayah_id and not kon.execute(
+            "SELECT 1 FROM wilayah WHERE id = ?", (wilayah_id,)).fetchone():
+        kon.close()
+        return tolak(request, "Desa/Kelurahan tidak dikenal.")
+    kon.execute(
+        "INSERT INTO opname_kecuali (tahun, wilayah_id, nomor_berkas, keterangan, "
+        "dibuat_oleh, dibuat_pada) VALUES (?,?,?,?,?,?)",
+        (tahun, wilayah_id, nomor_berkas, keterangan, petugas_aktif(request) or None, sekarang()))
+    tulis_log(kon, petugas_aktif(request), "Kecualikan dari skor opname %d" % tahun,
+             None, keterangan)
+    kon.commit()
+    kon.close()
+    return RedirectResponse("/opname/rekap?tersimpan=1", status_code=303)
+
+
+async def opname_kecuali_hapus(request: Request):
+    """Admin: batalkan satu aturan pengecualian skor; baris terkait ikut skor lagi."""
+    if not is_admin(request):
+        return tolak(request, "Mengubah pengecualian hanya bisa dilakukan oleh Admin.")
+    kid = request.path_params["id"]
+    kon = db.sambung()
+    kon.execute("DELETE FROM opname_kecuali WHERE id = ?", (kid,))
+    kon.commit()
+    kon.close()
+    return RedirectResponse("/opname/rekap?tersimpan=1", status_code=303)
 
 
 # Tata letak lembar Matriks K1, disalin dari berkas contoh
@@ -4286,6 +4384,8 @@ rute = [
     Route("/opname/cari.json", opname_cari_json),
     Route("/opname/rekap", opname_rekap_petugas),
     Route("/opname/rekap.json", opname_rekap_json),
+    Route("/opname/rekap/kecuali", opname_kecuali_tambah, methods=["POST"]),
+    Route("/opname/rekap/kecuali/{id:int}/hapus", opname_kecuali_hapus, methods=["POST"]),
     Route("/opname/{tahun:int}", opname_halaman_tahun),
     Route("/opname/{tahun:int}/baris.json", opname_baris_json),
     Route("/opname/{tahun:int}/baris", opname_simpan_baris, methods=["POST"]),
