@@ -12,6 +12,8 @@
   diperbarui sendiri setiap beberapa detik, tidak perlu memuat ulang halaman.
 </p>
 
+{% if tersimpan %}<div class="pesan sukses">Tersimpan.</div>{% endif %}
+
 <div class="balapan-papan" id="balapan-papan">
   {% for b in baris[:3] %}
     {% set persen = (b.jumlah / (baris[0].jumlah or 1) * 100) | round(0, 'floor') | int %}
@@ -72,6 +74,81 @@
     </table>
   </div>
 </div>
+
+{% if admin %}
+<div class="kartu">
+  <h2>Admin: Kecualikan dari skor</h2>
+  <p class="jelas">
+    Baris yang cocok tidak ikut dihitung di skor/papan peringkat di atas, tapi
+    tetap dihitung seperti biasa di "Sudah diinput di sini" pada menu Opname
+    Fisik Residu — ini cuma mengoreksi skor, bukan data opnamenya.
+  </p>
+  <form method="post" action="/opname/rekap/kecuali">
+    <div class="baris-borang tiga">
+      <div class="bidang-isian">
+        <label for="kec-tahun">Tahun</label>
+        <select id="kec-tahun" name="tahun" required>
+          {% for t in tahun_opname %}<option value="{{ t }}">{{ t }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="bidang-isian">
+        <label for="kec-desa">Desa/Kelurahan (opsional)</label>
+        <select id="kec-desa" name="wilayah_id">
+          <option value="">— tidak dibatasi desa —</option>
+          {% for w in wilayah %}
+            <option value="{{ w.id }}">{{ w.nama_desa }} ({{ w.nama_kecamatan }})</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="bidang-isian">
+        <label for="kec-berkas">Nomor Berkas (opsional)</label>
+        <input type="text" id="kec-berkas" name="nomor_berkas" maxlength="100"
+               placeholder="kosongkan bila sedesa">
+      </div>
+    </div>
+    <div class="bidang-isian isian-lebar">
+      <label for="kec-ket">Keterangan (opsional)</label>
+      <input type="text" id="kec-ket" name="keterangan" maxlength="300" class="lebar-penuh"
+             placeholder="alasan dikecualikan dari skor">
+    </div>
+    <p class="petunjuk">Isi Desa, Nomor Berkas, atau keduanya — minimal salah satu.</p>
+    <button type="submit" class="hijau">Kecualikan</button>
+  </form>
+
+  {% if aturan %}
+    <table style="margin-top:18px">
+      <thead>
+        <tr>
+          <th>Tahun</th>
+          <th>Cakupan</th>
+          <th>Keterangan</th>
+          <th>Dibuat</th>
+          <th class="tengah">Aksi</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for a in aturan %}
+          <tr>
+            <td class="mono">{{ a.tahun }}</td>
+            <td>
+              {% if a.nama_desa %}{{ a.nama_desa }} ({{ a.nama_kecamatan }}){% endif %}
+              {%- if a.nomor_berkas %}{{ ' · ' if a.nama_desa }}Berkas {{ a.nomor_berkas }}{% endif %}
+            </td>
+            <td class="kecil redup">{{ a.keterangan or '—' }}</td>
+            <td class="kecil redup">{{ a.dibuat_oleh or '-' }}, {{ a.dibuat_pada or '-' }}</td>
+            <td class="tengah">
+              <form method="post" action="/opname/rekap/kecuali/{{ a.id }}/hapus" style="display:inline"
+                    data-konfirmasi="Batalkan pengecualian ini? Baris yang cocok akan ikut dihitung di skor lagi.">
+                <button type="submit" class="tombol kecil kedua">Hapus</button>
+              </form>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% endif %}
+</div>
+{% endif %}
 
 <script>
 (function () {

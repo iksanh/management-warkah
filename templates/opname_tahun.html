@@ -347,6 +347,26 @@
     pilihCatatan.perbarui();
   });
 
+  /* ---- Tombol "Cek Tipologi": tampilkan hasil analisis sesuai/tidaknya ---- */
+  document.getElementById('tabel-opname-isi').addEventListener('click', function (e) {
+    var tombol = e.target.closest('.tombol-cek-tipologi');
+    if (!tombol) return;
+    var status = tombol.dataset.status;
+    var pesan;
+    if (!status) {
+      pesan = 'Tipologi Permasalahan belum diisi pada baris ini, tidak ada yang bisa dicek.';
+    } else if (status === 'sesuai') {
+      pesan = '✓ Sesuai pedoman tipologi K1.\n\n' + (tombol.dataset.alasan || '');
+    } else if (status === 'tidak_sesuai') {
+      pesan = '⚠ Berdasarkan Catatan Kekurangan/Keterangan tambahan, kemungkinan '
+            + 'lebih tepat: ' + tombol.dataset.disarankan + '\n\n' + (tombol.dataset.alasan || '');
+    } else {
+      pesan = '? Catatan Kekurangan/Keterangan tambahan pada baris ini belum cukup '
+            + 'jelas untuk dinilai otomatis terhadap pedoman tipologi K1.';
+    }
+    window.alert(pesan);
+  });
+
   /* ---- Hapus baris lewat fetch, supaya tidak perlu memuat ulang halaman ---- */
   document.getElementById('tabel-opname-isi').addEventListener('submit', function (e) {
     var borang = e.target;

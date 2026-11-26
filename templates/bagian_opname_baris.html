@@ -48,7 +48,13 @@
     {% endfor %}
     {{ (teks | join('; ')) if teks else (r.catatan or '—') }}
   </td>
-  <td class="tengah">
+  <td class="tengah nowrap">
+    <button type="button" class="tombol kecil kedua tombol-cek-tipologi"
+            data-status="{{ a.status if a else '' }}"
+            data-disarankan="{{ a.disarankan | join(', ') if a else '' }}"
+            data-alasan="{{ a.alasan | join('\n') if a else '' }}">
+      Cek Tipologi
+    </button>
     <form method="post" action="/opname/{{ tahun }}/{{ r.id }}/hapus"
           class="form-hapus-opname" style="display:inline"
           data-konfirmasi="Hapus baris ini dari opname {{ tahun }}?">
