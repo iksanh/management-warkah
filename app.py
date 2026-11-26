@@ -3393,6 +3393,11 @@ SUMBER_OPNAME = "Opname fisik K1"
 # yang membaca log ini, bukan residu.diubah_oleh, supaya rekap tidak rusak
 # saat baris itu belakangan disentuh lagi dari menu lain)
 AKSI_TAMBAH_OPNAME = "Tambah baris opname fisik residu"
+# aksi log persetujuan manual Admin atas status tipologi (lihat
+# peta_tipologi_disetujui) -- juga lewat log_aktivitas, bukan kolom baru,
+# dengan pola yang sama seperti AKSI_TAMBAH_OPNAME di atas
+AKSI_SETUJUI_TIPOLOGI = "Setujui tipologi opname fisik residu"
+AKSI_BATAL_SETUJUI_TIPOLOGI = "Batalkan persetujuan tipologi opname fisik residu"
 TAHUN_OPNAME = list(range(2017, 2027))
 KANTOR_PERTANAHAN = "Kabupaten Bone Bolango"
 # urutan kolom tipologi di lembar Matriks K1, mengikuti Surat Sekjen di atas
@@ -3406,12 +3411,32 @@ def opname_info(kon, tahun):
     return kon.execute("SELECT * FROM opname_tahun WHERE tahun = ?", (tahun,)).fetchone()
 
 
-def opname_baris(kon, tahun):
-    """Baris residu "bersih" (hasil opname fisik, bukan sisa impor lama) satu tahun."""
-    return kon.execute(
-        SQL_RESIDU + " WHERE r.tahun = ? AND r.sumber = ? "
-        "ORDER BY w.nama_kecamatan, w.nama_desa, r.nomor_hak",
-        (tahun, SUMBER_OPNAME)).fetchall()
+def opname_baris(kon, tahun, wilayah_id=None):
+    """Baris residu "bersih" (hasil opname fisik, bukan sisa impor lama) satu tahun.
+
+    ``wilayah_id`` (filter kolom Desa/Kelurahan) disaring di SQL karena itu
+    kolom langsung di residu. Filter Petugas Input dan Status Tipologi
+    dilakukan belakangan di sisi Python oleh pemanggil (lihat
+    opname_halaman_tahun/opname_baris_json) karena keduanya nilai turunan
+    (dari log_aktivitas dan analisis_tipologi), bukan kolom.
+    """
+    sql = SQL_RESIDU + " WHERE r.tahun = ? AND r.sumber = ?"
+    param = [tahun, SUMBER_OPNAME]
+    if wilayah_id:
+        sql += " AND r.wilayah_id = ?"
+        param.append(wilayah_id)
+    sql += " ORDER BY w.nama_kecamatan, w.nama_desa, r.nomor_hak"
+    return kon.execute(sql, param).fetchall()
+
+
+def status_tampil_tipologi(r, analisis, disetujui):
+    """Status tipologi FINAL satu baris untuk ditampilkan/difilter: persetujuan
+    manual Admin (lihat peta_tipologi_disetujui) menimpa hasil otomatis."""
+    kunci = "nomor hak %s" % (r["nomor_hak"] or r["nomor_berkas"] or "-")
+    if kunci in disetujui:
+        return "disetujui"
+    a = analisis.get(r["id"])
+    return a["status"] if a else None
 
 
 def kunci_opname(kon, nomor_hak):
@@ -3445,7 +3470,8 @@ ATURAN_TIPOLOGI = [
     ("T1.3", ["tidak bersedia menerima sertipikat", "tidak pernah mengajukan permohonan",
               "tidak pernah mengajukan", "tidak pernah mendaftar"]),
     ("T1.4", ["bentuk bidang tidak sesuai", "bidang tertukar", "kesalahan luas",
-              "luas tidak sesuai", "luas sertipikat tidak sesuai", "salah nama peserta",
+              "luas tidak sesuai", "luas sertipikat tidak sesuai", "selisih luas",
+              "beda luas", "salah nama peserta",
               "double input", "dobel input", "data ganda", "data pemegang hak ganda",
               "kesalahan jenis hak", "nama tidak sesuai ktp", "nama pemegang hak tidak sesuai ktp",
               "nik belum ada", "nik tidak sesuai", "tempat/tanggal lahir tidak sesuai",
@@ -3472,7 +3498,9 @@ ATURAN_TIPOLOGI = [
               "surat pernyataan belum diisi", "surat pernyataan beda luas",
               "surat rekom belum ada", "surat keterangan absente",
               "surat keterangan beda batas", "akta kematian ahli waris",
-              "ktp/kk ahli waris"]),
+              "ktp/kk ahli waris", "ahli waris", "pelepasan waris", "pernyataan waris",
+              "surat waris", "formulir belum diisi", "formulir tidak diisi",
+              "formulir belum lengkap"]),
     ("T5", ["hilang di kantor", "tidak ditemukan di kantor", "berkas hilang",
             "sertipikat yang telah dicetak hilang", "buku tanah hilang"]),
     ("T6", ["sengketa", "perkara"]),
@@ -3484,50 +3512,85 @@ ATURAN_TIPOLOGI = [
 POLA_SEBUTAN_TIPOLOGI = re.compile(r"\bT([1-9](?:\.[1-4])?)\b", re.IGNORECASE)
 
 
-def teks_analisis_baris(r, peta_catatan):
-    """Gabungan teks Catatan Kekurangan + Keterangan tambahan satu baris residu."""
-    bagian = [peta_catatan.get(k, k) for k in (r["catatan_kode"] or "").split(",") if k]
-    if r["catatan"]:
-        bagian.append(r["catatan"])
-    return " ".join(bagian)
+def sumber_teks(catatan_kode, catatan, peta_catatan):
+    """Daftar potongan teks terpisah: satu per kode Catatan Kekurangan yang
+    dicentang, plus satu untuk Keterangan tambahan.
 
-
-def analisis_tipologi(tipologi_kode, teks, tidak_ditemukan=False):
-    """Nilai kecocokan Tipologi Permasalahan terhadap Catatan Kekurangan/Keterangan.
-
-    Hanya menilai berdasarkan ATURAN_TIPOLOGI (lihat sumbernya di atas) --
-    tidak pernah mengubah ``tipologi_kode``. None bila tipologinya sendiri
-    masih kosong (tidak ada yang perlu dinilai). Kembalian lain berupa dict
-    {status, disarankan, alasan}; status salah satu dari "sesuai" (kode yang
-    dipilih didukung bukti), "tidak_sesuai" (bukti menunjuk kode lain), atau
-    "tanpa_info" (catatan/keterangannya belum cukup jelas untuk dinilai).
+    Sengaja TIDAK digabung jadi satu string -- kalau beberapa catatan yang
+    tidak berkaitan (mis. "Fotokopi KTP belum ada" dan "Risalah belum tanda
+    tangan") digabung dulu baru dicari kata kuncinya, bukti utnuk satu catatan
+    bisa ikut "membenarkan" tipologi yang sebenarnya cuma didukung catatan
+    lain. Lihat analisis_tipologi().
     """
-    dipilih = {k.strip() for k in (tipologi_kode or "").split(",") if k.strip()}
-    if not dipilih:
-        return None
-    t = (teks or "").lower()
+    bagian = [peta_catatan.get(k, k) for k in (catatan_kode or "").split(",") if k]
+    if catatan:
+        bagian.append(catatan)
+    return bagian
 
-    # bukti per kode, kunci -> daftar alasan singkat; sebutan eksplisit kode
-    # ("T1.4 yaitu ...") adalah bukti terkuat karena petugas menuliskannya sendiri
+
+def sumber_teks_baris(r, peta_catatan):
+    """sumber_teks() untuk satu baris residu yang sudah tersimpan."""
+    return sumber_teks(r["catatan_kode"], r["catatan"], peta_catatan)
+
+
+def cari_bukti_tipologi(teks):
+    """Kode tipologi yang didukung SATU potong teks saja, dengan alasannya."""
+    t = (teks or "").lower()
     bukti = {}
     for m in POLA_SEBUTAN_TIPOLOGI.finditer(t):
         bukti.setdefault("T" + m.group(1).upper(), []).append(
             "disebut langsung di catatan/keterangan")
-    if tidak_ditemukan:
-        bukti.setdefault("T5", []).append('tercentang "berkas tidak ditemukan saat diperiksa"')
     for kode, pola in ATURAN_TIPOLOGI:
         for frasa in pola:
             if frasa in t:
                 bukti.setdefault(kode, []).append('frasa "%s"' % frasa)
                 break
+    return bukti
+
+
+def analisis_tipologi(tipologi_kode, sumber_teks, tidak_ditemukan=False):
+    """Nilai kecocokan Tipologi Permasalahan terhadap Catatan Kekurangan/Keterangan.
+
+    Tiap potongan di ``sumber_teks`` (lihat sumber_teks_baris) dinilai SENDIRI-
+    SENDIRI baru hasilnya digabung -- supaya satu baris yang mencentang
+    beberapa catatan dari kelompok masalah berbeda tetap ketahuan semuanya,
+    bukan cuma dianggap "sesuai" begitu salah satu kode yang dipilih kebetulan
+    didukung salah satu catatannya saja. Hanya menilai berdasarkan
+    ATURAN_TIPOLOGI (lihat sumbernya di atas) -- tidak pernah mengubah
+    ``tipologi_kode``. None bila tipologinya sendiri masih kosong (tidak ada
+    yang perlu dinilai). Kembalian lain berupa dict {status, disarankan,
+    alasan}; status salah satu dari:
+      - "sesuai"       semua bukti yang ditemukan mendukung kode yang dipilih
+      - "sebagian"     kode yang dipilih didukung bukti, TAPI ada bukti lain
+                       yang menunjuk kode tambahan yang belum ikut dipilih
+      - "tidak_sesuai" tidak satu pun kode yang dipilih didukung bukti
+      - "tanpa_info"   catatan/keterangannya belum cukup jelas untuk dinilai
+    """
+    dipilih = {k.strip() for k in (tipologi_kode or "").split(",") if k.strip()}
+    if not dipilih:
+        return None
+
+    bukti = {}
+    for teks in sumber_teks:
+        for kode, alasan in cari_bukti_tipologi(teks).items():
+            sudah = bukti.setdefault(kode, [])
+            sudah.extend(a for a in alasan if a not in sudah)
+    if tidak_ditemukan:
+        bukti.setdefault("T5", []).append('tercentang "berkas tidak ditemukan saat diperiksa"')
 
     if not bukti:
         return {"status": "tanpa_info", "disarankan": [], "alasan": []}
 
     cocok = sorted(dipilih & set(bukti))
-    if cocok:
+    lain = sorted(set(bukti) - dipilih)
+    if cocok and not lain:
         return {"status": "sesuai", "disarankan": cocok,
                 "alasan": ["%s: %s" % (k, bukti[k][0]) for k in cocok]}
+    if cocok and lain:
+        # "disarankan" cuma kode TAMBAHAN yang belum dicentang -- kode yang
+        # sudah dicentang (cocok) tidak perlu disebut lagi sebagai saran
+        return {"status": "sebagian", "disarankan": lain,
+                "alasan": ["%s: %s" % (k, bukti[k][0]) for k in cocok + lain]}
 
     urutan = sorted(bukti.items(), key=lambda kv: (-len(kv[1]), kv[0]))[:2]
     return {"status": "tidak_sesuai", "disarankan": [k for k, _ in urutan],
@@ -3613,6 +3676,35 @@ async def opname_ubah_target(request: Request):
     return RedirectResponse("/opname?tersimpan=1", status_code=303)
 
 
+def muat_baris_opname(kon, tahun, query):
+    """Baris opname satu tahun + status turunannya, disaring sesuai query
+    params Desa/Petugas/Status.
+
+    Dipakai bersama oleh opname_halaman_tahun dan opname_baris_json supaya
+    tampilan pertama dan pembaruan berkala (polling) selalu konsisten. Filter
+    Desa disaring di SQL (lihat opname_baris); filter Petugas Input dan Status
+    Tipologi disaring belakangan di Python karena keduanya nilai turunan.
+    """
+    wid = query.get("wilayah_id")
+    wilayah_id = int(wid) if (wid or "").isdigit() else None
+    baris = opname_baris(kon, tahun, wilayah_id)
+    peta_catatan = {c["kode"]: c["teks"] for c in daftar_catatan(kon, semua=True)}
+    analisis = {r["id"]: analisis_tipologi(r["tipologi"], sumber_teks_baris(r, peta_catatan),
+                                           bool(r["tidak_ditemukan"])) for r in baris}
+    petugas_input = peta_petugas_input(kon, tahun)
+    disetujui = peta_tipologi_disetujui(kon, tahun)
+
+    petugas_f = (query.get("petugas") or "").strip()
+    status_f = (query.get("status") or "").strip()
+    if petugas_f:
+        baris = [r for r in baris if petugas_input.get(
+            "nomor hak %s" % (r["nomor_hak"] or r["nomor_berkas"] or "-")) == petugas_f]
+    if status_f:
+        baris = [r for r in baris
+                 if (status_tampil_tipologi(r, analisis, disetujui) or "kosong") == status_f]
+    return baris, peta_catatan, analisis, petugas_input, disetujui
+
+
 async def opname_halaman_tahun(request: Request):
     """Borang isian + daftar bersih baris opname satu tahun."""
     tahun = request.path_params["tahun"]
@@ -3623,7 +3715,13 @@ async def opname_halaman_tahun(request: Request):
     if info is None:
         kon.close()
         return RedirectResponse("/opname", status_code=303)
-    baris = opname_baris(kon, tahun)
+    baris, peta_catatan, analisis, petugas_input, disetujui = muat_baris_opname(
+        kon, tahun, request.query_params)
+    # total SELALU dihitung tanpa filter -- "Sudah diinput di sini" harus tetap
+    # mencerminkan jumlah sungguhan, bukan ikut menyusut saat sedang difilter
+    total_jumlah = kon.execute(
+        "SELECT COUNT(*) AS c FROM residu WHERE tahun = ? AND sumber = ?",
+        (tahun, SUMBER_OPNAME)).fetchone()["c"]
     wilayah = kon.execute(
         "SELECT id, nama_kecamatan, nama_desa FROM wilayah "
         "ORDER BY nama_kecamatan, nama_desa").fetchall()
@@ -3631,14 +3729,19 @@ async def opname_halaman_tahun(request: Request):
     daftar_tipologi = kon.execute(
         "SELECT kode, kelompok, nama FROM tipologi ORDER BY urut").fetchall()
     grup_catatan = kelompokkan_catatan(daftar_catatan(kon))
-    peta_catatan = {c["kode"]: c["teks"] for c in daftar_catatan(kon, semua=True)}
-    analisis = {r["id"]: analisis_tipologi(r["tipologi"], teks_analisis_baris(r, peta_catatan),
-                                           bool(r["tidak_ditemukan"])) for r in baris}
+    daftar_petugas_input = sorted(set(peta_petugas_input(kon, tahun).values()))
     kon.close()
     return templates.TemplateResponse(request, "opname_tahun.html", konteks(
-        request, tahun=tahun, info=info, baris=baris, jumlah=len(baris),
+        request, tahun=tahun, info=info, baris=baris, jumlah=total_jumlah,
+        jumlah_tampil=len(baris),
         wilayah=wilayah, daftar_hak=daftar_hak, daftar_tipologi=daftar_tipologi,
         grup_catatan=grup_catatan, peta_catatan=peta_catatan, analisis=analisis,
+        petugas_input=petugas_input, disetujui=disetujui,
+        daftar_petugas_input=daftar_petugas_input,
+        status_tampil=status_tampil_tipologi,
+        filter_petugas=request.query_params.get("petugas") or "",
+        filter_wilayah_id=request.query_params.get("wilayah_id") or "",
+        filter_status=request.query_params.get("status") or "",
         tersimpan=request.query_params.get("tersimpan"),
         galat=request.query_params.get("galat")))
 
@@ -3647,14 +3750,17 @@ async def opname_baris_json(request: Request):
     """Baris opname terkini satu tahun, untuk pembaruan tabel berkala (polling)."""
     tahun = request.path_params["tahun"]
     kon = db.sambung()
-    baris = opname_baris(kon, tahun)
-    peta_catatan = {c["kode"]: c["teks"] for c in daftar_catatan(kon, semua=True)}
-    analisis = {r["id"]: analisis_tipologi(r["tipologi"], teks_analisis_baris(r, peta_catatan),
-                                           bool(r["tidak_ditemukan"])) for r in baris}
+    baris, peta_catatan, analisis, petugas_input, disetujui = muat_baris_opname(
+        kon, tahun, request.query_params)
+    total_jumlah = kon.execute(
+        "SELECT COUNT(*) AS c FROM residu WHERE tahun = ? AND sumber = ?",
+        (tahun, SUMBER_OPNAME)).fetchone()["c"]
     kon.close()
     html = templates.get_template("bagian_opname_baris.html").render(
-        baris=baris, tahun=tahun, peta_catatan=peta_catatan, analisis=analisis)
-    return JSONResponse({"jumlah": len(baris), "html": html})
+        baris=baris, tahun=tahun, peta_catatan=peta_catatan, analisis=analisis,
+        petugas_input=petugas_input, disetujui=disetujui, status_tampil=status_tampil_tipologi,
+        admin=is_admin(request))
+    return JSONResponse({"jumlah": len(baris), "total": total_jumlah, "html": html})
 
 
 async def opname_cari_json(request: Request):
@@ -3683,6 +3789,23 @@ async def opname_cari_json(request: Request):
         "catatan_kode": r["catatan_kode"],
         "catatan": r["catatan"],
     } for r in baris])
+
+
+async def opname_cek_tipologi(request: Request):
+    """Cek kecocokan Tipologi Permasalahan vs Catatan Kekurangan/Keterangan
+    langsung dari isian borang, SEBELUM baris disimpan -- dipakai tombol "Cek
+    Tipologi" di sebelah Save/Bersihkan borang pada borang Tambah/Ubah baris,
+    supaya petugas bisa mengecek lebih dulu tanpa harus Save dulu.
+    """
+    kon = db.sambung()
+    form = await request.form()
+    tipologi = kode_tipologi(kon, form)
+    catatan_kode = kode_catatan(kon, form)
+    catatan = (form.get("catatan") or "").strip()[:500] or None
+    peta_catatan = {c["kode"]: c["teks"] for c in daftar_catatan(kon, semua=True)}
+    kon.close()
+    a = analisis_tipologi(tipologi, sumber_teks(catatan_kode, catatan, peta_catatan))
+    return JSONResponse(a or {"status": None, "disarankan": [], "alasan": []})
 
 
 async def opname_simpan_baris(request: Request):
@@ -3755,6 +3878,74 @@ async def opname_simpan_baris(request: Request):
     return RedirectResponse("/opname/%d?tersimpan=1" % tahun, status_code=303)
 
 
+async def opname_ubah_baris(request: Request):
+    """Ubah baris opname yang sudah diinput (nomor, tipologi, catatan, dst).
+
+    Hanya mengubah isian baris, tidak pernah mengubah siapa pencatat aslinya
+    (lihat peta_petugas_input) -- dicatat lewat aksi log TERPISAH dari
+    AKSI_TAMBAH_OPNAME supaya tidak ikut terhitung dua kali di skor Rekap
+    Petugas.
+    """
+    tahun = request.path_params["tahun"]
+    rid = request.path_params["residu_id"]
+    if tahun not in TAHUN_OPNAME:
+        return tolak(request, "Tahun opname tidak sah.")
+    kon = db.sambung()
+    r = kon.execute("SELECT id, sumber, bidang_id FROM residu WHERE id = ? AND tahun = ?",
+                    (rid, tahun)).fetchone()
+    if r is None or r["sumber"] != SUMBER_OPNAME:
+        kon.close()
+        return tolak(request, "Baris ini tidak bisa diubah dari sini.")
+    form = await request.form()
+
+    wid = form.get("wilayah_id")
+    w = kon.execute(
+        "SELECT id, nama_desa, nama_kecamatan FROM wilayah WHERE id = ?",
+        (int(wid),)).fetchone() if (wid or "").isdigit() else None
+    jh = kon.execute("SELECT nama FROM jenis_hak WHERE kode = ?",
+                     (form.get("jenis_hak") or "",)).fetchone()
+    nomor_berkas = (form.get("nomor_berkas") or "").strip()[:100] or None
+    nomor_hak = (form.get("nomor_hak") or "").strip()[:100] or None
+    nama_pemegang = (form.get("nama_pemegang") or "").strip()[:200] or None
+    sudah = 1 if form.get("sudah_diserahkan") == "1" else 0
+    tipologi = kode_tipologi(kon, form)
+    catatan_kode = kode_catatan(kon, form)
+    catatan = (form.get("catatan") or "").strip()[:500] or None
+
+    galat, luas = None, None
+    if w is None:
+        galat = "Desa/Kelurahan belum dipilih."
+    elif jh is None:
+        galat = "Jenis hak belum dipilih."
+    elif not nomor_hak and not nomor_berkas:
+        galat = "Isi Nomor Hak atau Nomor Berkas, minimal salah satu."
+    else:
+        try:
+            luas = baca_luas(form.get("luas"))
+        except ValueError as e:
+            galat = str(e)
+    if galat:
+        kon.close()
+        return RedirectResponse(
+            "/opname/%d?galat=%s" % (tahun, quote(galat, safe="")), status_code=303)
+
+    siapa = petugas_aktif(request)
+    kon.execute(
+        "UPDATE residu SET wilayah_id = ?, nomor_berkas = ?, nomor_hak = ?, "
+        "nomor_hak_asli = ?, jenis_hak = ?, jenis_hak_teks = ?, desa_teks = ?, "
+        "kecamatan_teks = ?, nama_pemegang = ?, luas = ?, sudah_diserahkan = ?, "
+        "tipologi = ?, catatan_kode = ?, catatan = ?, diubah_oleh = ?, diubah_pada = ? "
+        "WHERE id = ?",
+        (w["id"], nomor_berkas, nomor_hak, nomor_hak, form.get("jenis_hak"), jh["nama"],
+         w["nama_desa"], w["nama_kecamatan"], nama_pemegang, luas, sudah, tipologi,
+         catatan_kode, catatan, siapa or None, sekarang(), rid))
+    tulis_log(kon, siapa, "Ubah baris opname fisik residu %d" % tahun,
+             r["bidang_id"], "nomor hak %s" % (nomor_hak or nomor_berkas or "-"))
+    kon.commit()
+    kon.close()
+    return RedirectResponse("/opname/%d?tersimpan=1" % tahun, status_code=303)
+
+
 async def opname_hapus_baris(request: Request):
     """Hapus satu baris opname; hanya baris dari menu ini yang boleh dihapus."""
     tahun = request.path_params["tahun"]
@@ -3772,6 +3963,79 @@ async def opname_hapus_baris(request: Request):
     kon.commit()
     kon.close()
     return JSONResponse({"ok": True})
+
+
+def peta_petugas_input(kon, tahun):
+    """Nomor hak/berkas -> petugas yang pertama kali menginput baris itu.
+
+    Sama seperti hitung_rekap_petugas(), ini dibaca dari log_aktivitas bukan
+    dari residu.diubah_oleh -- supaya kolom "Petugas Input" tetap benar walau
+    baris itu belakangan diedit (lihat opname_ubah_baris) oleh orang lain.
+    """
+    peta = {}
+    for log in kon.execute(
+            "SELECT petugas, rincian FROM log_aktivitas WHERE aksi = ? ORDER BY id",
+            ("%s %d" % (AKSI_TAMBAH_OPNAME, tahun),)):
+        peta.setdefault(log["rincian"], log["petugas"] or "-")
+    return peta
+
+
+def peta_tipologi_disetujui(kon, tahun):
+    """Nomor hak/berkas -> (petugas, waktu) baris yang status tipologinya
+    sedang disetujui manual oleh Admin (menimpa hasil analisis_tipologi
+    otomatis jadi "disetujui admin", berdasarkan keputusan manusia).
+
+    Disimpan sebagai log_aktivitas (bukan kolom baru), sama seperti
+    peta_petugas_input di atas -- status TERKINI ditentukan oleh log
+    Setujui/Batalkan yang paling baru untuk kunci itu, supaya riwayat
+    persetujuannya tetap lengkap dan tidak perlu migrasi skema.
+    """
+    peta = {}
+    for log in kon.execute(
+            "SELECT aksi, rincian, petugas, waktu FROM log_aktivitas "
+            "WHERE aksi IN (?, ?) ORDER BY id",
+            ("%s %d" % (AKSI_SETUJUI_TIPOLOGI, tahun),
+             "%s %d" % (AKSI_BATAL_SETUJUI_TIPOLOGI, tahun))):
+        if log["aksi"].startswith(AKSI_SETUJUI_TIPOLOGI):
+            peta[log["rincian"]] = (log["petugas"] or "-", log["waktu"])
+        else:
+            peta.pop(log["rincian"], None)
+    return peta
+
+
+async def opname_setujui_tipologi(request: Request):
+    """Admin: setujui/batalkan status tipologi satu baris secara manual.
+
+    Dipakai kalau hasil analisis otomatis bilang "tidak sesuai"/"belum
+    jelas" padahal menurut Admin, berdasarkan pertimbangan manusia, tipologi
+    yang dipilih petugas sudah tepat. Tidak pernah mengubah isian tipologi
+    itu sendiri -- cuma menimpa TAMPILAN status jadi "disetujui admin".
+    """
+    if not is_admin(request):
+        return tolak(request, "Menyetujui tipologi hanya bisa dilakukan oleh Admin.")
+    tahun = request.path_params["tahun"]
+    rid = request.path_params["residu_id"]
+    kon = db.sambung()
+    r = kon.execute(
+        "SELECT id, sumber, bidang_id, nomor_hak, nomor_berkas FROM residu "
+        "WHERE id = ? AND tahun = ?", (rid, tahun)).fetchone()
+    if r is None or r["sumber"] != SUMBER_OPNAME:
+        kon.close()
+        return JSONResponse(
+            {"ok": False, "pesan": "Baris ini bukan dari Opname Fisik Residu."}, status_code=400)
+    kunci = "nomor hak %s" % (r["nomor_hak"] or r["nomor_berkas"] or "-")
+    sedang_disetujui = kunci in peta_tipologi_disetujui(kon, tahun)
+    siapa = petugas_aktif(request)
+    if sedang_disetujui:
+        tulis_log(kon, siapa, "%s %d" % (AKSI_BATAL_SETUJUI_TIPOLOGI, tahun),
+                 r["bidang_id"], kunci)
+        disetujui = False
+    else:
+        tulis_log(kon, siapa, "%s %d" % (AKSI_SETUJUI_TIPOLOGI, tahun), r["bidang_id"], kunci)
+        disetujui = True
+    kon.commit()
+    kon.close()
+    return JSONResponse({"ok": True, "disetujui": disetujui})
 
 
 def muat_kecuali(kon):
@@ -4382,6 +4646,7 @@ rute = [
     Route("/opname/{tahun:int}/ubah-target", opname_ubah_target, methods=["POST"]),
     Route("/opname/export.xlsx", opname_export_xlsx),
     Route("/opname/cari.json", opname_cari_json),
+    Route("/opname/cek-tipologi", opname_cek_tipologi, methods=["POST"]),
     Route("/opname/rekap", opname_rekap_petugas),
     Route("/opname/rekap.json", opname_rekap_json),
     Route("/opname/rekap/kecuali", opname_kecuali_tambah, methods=["POST"]),
@@ -4389,6 +4654,9 @@ rute = [
     Route("/opname/{tahun:int}", opname_halaman_tahun),
     Route("/opname/{tahun:int}/baris.json", opname_baris_json),
     Route("/opname/{tahun:int}/baris", opname_simpan_baris, methods=["POST"]),
+    Route("/opname/{tahun:int}/{residu_id:int}/ubah", opname_ubah_baris, methods=["POST"]),
+    Route("/opname/{tahun:int}/{residu_id:int}/setujui-tipologi", opname_setujui_tipologi,
+          methods=["POST"]),
     Route("/opname/{tahun:int}/{residu_id:int}/hapus", opname_hapus_baris, methods=["POST"]),
     Mount("/static", StaticFiles(directory=os.path.join(BASE_DIR, "static")), name="static"),
 ]

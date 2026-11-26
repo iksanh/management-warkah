@@ -408,6 +408,23 @@ TAMBAHAN_KOLOM = {
 }
 
 
+# Kecamatan Pinogu (dibentuk dari sebagian Suwawa Timur lewat Perda Bone
+# Bolango No. 5/2012) belum pernah masuk tabel wilayah -- jadi 5 desa di
+# bawahnya tidak bisa dipilih di mana pun di aplikasi, termasuk di menu
+# Opname Fisik Residu dan Kecualikan Rekap Petugas. kode_kec/kode_desa
+# persis dari Kemendagri; "kelompok" sementara dibuat tersendiri
+# ("Kelompok Pinogu") karena kecamatan ini tidak pernah ikut pembagian
+# kelompok yang sudah ada -- tinggal diubah lewat basis data bila kantor
+# punya pembagian yang lebih sesuai.
+WILAYAH_PINOGU = [
+    ("Kelompok Pinogu", "75.03.18", "Pinogu", "75.03.18.2001", "Pinogu"),
+    ("Kelompok Pinogu", "75.03.18", "Pinogu", "75.03.18.2002", "Bangio"),
+    ("Kelompok Pinogu", "75.03.18", "Pinogu", "75.03.18.2003", "Dataran Hijau"),
+    ("Kelompok Pinogu", "75.03.18", "Pinogu", "75.03.18.2004", "Pinogu Permai"),
+    ("Kelompok Pinogu", "75.03.18", "Pinogu", "75.03.18.2005", "Tilonggibila"),
+]
+
+
 def migrasi(kon):
     """Tambahkan kolom baru pada basis data yang sudah terlanjur dibuat."""
     for tabel, kolom in TAMBAHAN_KOLOM.items():
@@ -425,6 +442,9 @@ def migrasi(kon):
     # terbaru juga -- termasuk kode umum T1/T2/T3 yang baru ditambahkan
     kon.executemany("UPDATE tipologi SET urut = ? WHERE kode = ?",
                     [(urut, kode) for kode, _, urut in TIPOLOGI])
+    kon.executemany(
+        "INSERT OR IGNORE INTO wilayah (kelompok, kode_kec, nama_kecamatan, kode_desa, "
+        "nama_desa) VALUES (?,?,?,?,?)", WILAYAH_PINOGU)
     kon.commit()
 
 
