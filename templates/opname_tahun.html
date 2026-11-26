@@ -154,6 +154,7 @@
 
     <div class="deret-tombol" style="margin-top:12px">
       <button type="submit" class="hijau">Save</button>
+      <button type="button" class="tombol kecil kedua" id="op-cek-tipologi">Cek Tipologi</button>
       <button type="button" class="tombol kedua" id="op-reset">Bersihkan borang</button>
     </div>
   </form>
@@ -406,31 +407,57 @@
     pilihCatatan.perbarui();
   });
 
-  /* ---- Tombol "Cek Tipologi": tampilkan hasil analisis sesuai/tidaknya ---- */
+  /* ---- Susun pesan hasil analisis tipologi, dipakai baik oleh tombol "Cek
+     Tipologi" per baris (dari data-* yang sudah dirender) maupun tombol "Cek
+     Tipologi" di borang Tambah/Ubah baris (dari hasil fetch langsung). ---- */
+  function pesanAnalisis(status, disarankan, alasan, konteks) {
+    konteks = konteks || 'baris ini';
+    if (!status) {
+      return 'Tipologi Permasalahan belum diisi pada ' + konteks + ', tidak ada yang bisa dicek.';
+    }
+    if (status === 'disetujui') {
+      return '✓ Status tipologi sudah disetujui manual oleh Admin, menimpa hasil analisis otomatis.';
+    }
+    if (status === 'sesuai') {
+      return '✓ Sesuai pedoman tipologi K1.\n\n' + (alasan || '');
+    }
+    if (status === 'sebagian') {
+      return '+ Tipologi yang dicentang sudah didukung bukti, TAPI Catatan Kekurangan/'
+           + 'Keterangan tambahan juga mengarah ke tipologi lain yang belum ikut '
+           + 'dicentang: ' + disarankan + '\n\n' + (alasan || '')
+           + '\n\nPertimbangkan mencentang kode itu juga di atas, kalau memang berkaitan.';
+    }
+    if (status === 'tidak_sesuai') {
+      return '⚠ Berdasarkan Catatan Kekurangan/Keterangan tambahan, kemungkinan '
+           + 'lebih tepat: ' + disarankan + '\n\n' + (alasan || '');
+    }
+    return '? Catatan Kekurangan/Keterangan tambahan pada ' + konteks + ' belum cukup '
+         + 'jelas untuk dinilai otomatis terhadap pedoman tipologi K1.';
+  }
+
+  /* ---- Tombol "Cek Tipologi" per baris: tampilkan hasil analisis yang
+     sudah dirender server (data-status/disarankan/alasan) ---- */
   document.getElementById('tabel-opname-isi').addEventListener('click', function (e) {
     var tombol = e.target.closest('.tombol-cek-tipologi');
     if (!tombol) return;
-    var status = tombol.dataset.status;
-    var pesan;
-    if (!status) {
-      pesan = 'Tipologi Permasalahan belum diisi pada baris ini, tidak ada yang bisa dicek.';
-    } else if (status === 'disetujui') {
-      pesan = '✓ Status tipologi sudah disetujui manual oleh Admin, menimpa hasil analisis otomatis.';
-    } else if (status === 'sesuai') {
-      pesan = '✓ Sesuai pedoman tipologi K1.\n\n' + (tombol.dataset.alasan || '');
-    } else if (status === 'sebagian') {
-      pesan = '+ Tipologi yang dicentang sudah didukung bukti, TAPI Catatan Kekurangan/'
-            + 'Keterangan tambahan juga mengarah ke tipologi lain yang belum ikut '
-            + 'dicentang: ' + tombol.dataset.disarankan + '\n\n' + (tombol.dataset.alasan || '')
-            + '\n\nPertimbangkan menambahkan kode itu lewat tombol Ubah, kalau memang berkaitan.';
-    } else if (status === 'tidak_sesuai') {
-      pesan = '⚠ Berdasarkan Catatan Kekurangan/Keterangan tambahan, kemungkinan '
-            + 'lebih tepat: ' + tombol.dataset.disarankan + '\n\n' + (tombol.dataset.alasan || '');
-    } else {
-      pesan = '? Catatan Kekurangan/Keterangan tambahan pada baris ini belum cukup '
-            + 'jelas untuk dinilai otomatis terhadap pedoman tipologi K1.';
-    }
-    window.alert(pesan);
+    window.alert(pesanAnalisis(tombol.dataset.status, tombol.dataset.disarankan,
+                               tombol.dataset.alasan));
+  });
+
+  /* ---- Tombol "Cek Tipologi" di borang Tambah/Ubah baris: cek isian yang
+     SEDANG diketik, sebelum baris itu disimpan ---- */
+  document.getElementById('op-cek-tipologi').addEventListener('click', function () {
+    fetch('/opname/cek-tipologi', {
+      method: 'POST',
+      headers: { 'X-Requested-With': 'XMLHttpRequest' },
+      body: new FormData(borang),
+    })
+      .then(function (r) { return r.json(); })
+      .then(function (j) {
+        window.alert(pesanAnalisis(j.status, (j.disarankan || []).join(', '),
+                                   (j.alasan || []).join('\n'), 'isian ini'));
+      })
+      .catch(function () { window.alert('Gagal mengecek tipologi, coba lagi.'); });
   });
 
   /* ---- Tombol "Ubah": isi borang Tambah baris dengan data baris ini, lalu

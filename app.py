@@ -3512,9 +3512,9 @@ ATURAN_TIPOLOGI = [
 POLA_SEBUTAN_TIPOLOGI = re.compile(r"\bT([1-9](?:\.[1-4])?)\b", re.IGNORECASE)
 
 
-def sumber_teks_baris(r, peta_catatan):
-    """Daftar potongan teks terpisah satu baris residu: satu per Catatan
-    Kekurangan yang dicentang, plus satu untuk Keterangan tambahan.
+def sumber_teks(catatan_kode, catatan, peta_catatan):
+    """Daftar potongan teks terpisah: satu per kode Catatan Kekurangan yang
+    dicentang, plus satu untuk Keterangan tambahan.
 
     Sengaja TIDAK digabung jadi satu string -- kalau beberapa catatan yang
     tidak berkaitan (mis. "Fotokopi KTP belum ada" dan "Risalah belum tanda
@@ -3522,10 +3522,15 @@ def sumber_teks_baris(r, peta_catatan):
     bisa ikut "membenarkan" tipologi yang sebenarnya cuma didukung catatan
     lain. Lihat analisis_tipologi().
     """
-    bagian = [peta_catatan.get(k, k) for k in (r["catatan_kode"] or "").split(",") if k]
-    if r["catatan"]:
-        bagian.append(r["catatan"])
+    bagian = [peta_catatan.get(k, k) for k in (catatan_kode or "").split(",") if k]
+    if catatan:
+        bagian.append(catatan)
     return bagian
+
+
+def sumber_teks_baris(r, peta_catatan):
+    """sumber_teks() untuk satu baris residu yang sudah tersimpan."""
+    return sumber_teks(r["catatan_kode"], r["catatan"], peta_catatan)
 
 
 def cari_bukti_tipologi(teks):
@@ -3784,6 +3789,23 @@ async def opname_cari_json(request: Request):
         "catatan_kode": r["catatan_kode"],
         "catatan": r["catatan"],
     } for r in baris])
+
+
+async def opname_cek_tipologi(request: Request):
+    """Cek kecocokan Tipologi Permasalahan vs Catatan Kekurangan/Keterangan
+    langsung dari isian borang, SEBELUM baris disimpan -- dipakai tombol "Cek
+    Tipologi" di sebelah Save/Bersihkan borang pada borang Tambah/Ubah baris,
+    supaya petugas bisa mengecek lebih dulu tanpa harus Save dulu.
+    """
+    kon = db.sambung()
+    form = await request.form()
+    tipologi = kode_tipologi(kon, form)
+    catatan_kode = kode_catatan(kon, form)
+    catatan = (form.get("catatan") or "").strip()[:500] or None
+    peta_catatan = {c["kode"]: c["teks"] for c in daftar_catatan(kon, semua=True)}
+    kon.close()
+    a = analisis_tipologi(tipologi, sumber_teks(catatan_kode, catatan, peta_catatan))
+    return JSONResponse(a or {"status": None, "disarankan": [], "alasan": []})
 
 
 async def opname_simpan_baris(request: Request):
@@ -4624,6 +4646,7 @@ rute = [
     Route("/opname/{tahun:int}/ubah-target", opname_ubah_target, methods=["POST"]),
     Route("/opname/export.xlsx", opname_export_xlsx),
     Route("/opname/cari.json", opname_cari_json),
+    Route("/opname/cek-tipologi", opname_cek_tipologi, methods=["POST"]),
     Route("/opname/rekap", opname_rekap_petugas),
     Route("/opname/rekap.json", opname_rekap_json),
     Route("/opname/rekap/kecuali", opname_kecuali_tambah, methods=["POST"]),
