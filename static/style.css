@@ -1543,6 +1543,64 @@ body.modal-terbuka { overflow: hidden; }
 .pilih-catatan:hover { background: var(--kertas); }
 .pilih-catatan input { width: 16px; height: 16px; margin: 1px 0 0; flex: 0 0 auto; accent-color: var(--tinta); }
 .pilih-catatan:has(input:checked) { background: var(--biru-muda); font-weight: 500; }
+.pilih-catatan[hidden] { display: none; }
+
+/* ---- dropdown centang-banyak yang bisa dicari (mis. Opname Fisik Residu:
+   Tipologi Permasalahan, Catatan Kekurangan) — ringkas saat tertutup, kotak
+   cari + daftar tercentang saat dibuka, memanjang ke bawah dari tombolnya
+   sendiri saja supaya borang di sekitarnya tidak ikut melebar ke bawah. */
+.pilih-ganda { position: relative; }
+.pilih-ganda-tombol {
+  list-style: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-family: inherit;
+  font-size: 13.5px;
+  line-height: 1.3;
+  padding: 7px 10px;
+  border: 1px solid var(--garis-isian);
+  border-radius: var(--radius-kecil);
+  background: #fff;
+  color: var(--teks);
+}
+.pilih-ganda-tombol::-webkit-details-marker { display: none; }
+.pilih-ganda-tombol:hover { border-color: #a9b5b0; }
+.pilih-ganda-tombol:focus-visible { outline: none; box-shadow: var(--fokus); }
+.pilih-ganda[open] > .pilih-ganda-tombol { border-color: var(--tinta); box-shadow: var(--fokus); }
+.pilih-ganda-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pilih-ganda-label.kosong { color: #8b9799; }
+.pilih-ganda-panah {
+  width: 15px;
+  height: 15px;
+  flex: none;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  transition: transform .15s ease;
+}
+.pilih-ganda[open] .pilih-ganda-panah { transform: rotate(180deg); }
+.pilih-ganda-isi {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(100% + 6px);
+  z-index: 30;
+  background: var(--kartu);
+  border: 1px solid var(--garis);
+  border-radius: var(--radius-kecil);
+  box-shadow: 0 8px 24px rgba(14, 37, 45, .14);
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.pilih-ganda-daftar { max-height: 260px; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; }
+.pilih-ganda-daftar .grup-catatan { margin: 0; }
 
 /* ---- kaki: kabar di kiri, tombol di kanan ---- */
 .kaki-modal {

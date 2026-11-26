@@ -77,42 +77,63 @@
     </div>
 
     <div class="bidang-isian isian-lebar">
-      <label>Tipologi Permasalahan <span class="kecil redup">(boleh lebih dari satu)</span></label>
-      <div class="pilih-tipologi" id="op-tipologi-pilih">
-        {% set ns = namespace(kel='') %}
-        {% for t in daftar_tipologi %}
-          {% if t.kelompok != ns.kel %}
+      <label>Tipologi Permasalahan <span class="kecil redup">(boleh lebih dari satu, bisa dicari)</span></label>
+      <details class="pilih-ganda" id="op-tipologi-pilih">
+        <summary class="pilih-ganda-tombol">
+          <span class="pilih-ganda-label kosong">— belum diisi —</span>
+          <svg class="ikon pilih-ganda-panah" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+        </summary>
+        <div class="pilih-ganda-isi">
+          <input type="search" class="pilih-ganda-cari lebar-penuh" autocomplete="off"
+                 placeholder="Cari kode atau nama tipologi…">
+          <div class="pilih-ganda-daftar">
+            {% set ns = namespace(kel='') %}
+            {% for t in daftar_tipologi %}
+              {% if t.kelompok != ns.kel %}
+                {% if ns.kel %}</fieldset>{% endif %}
+                <fieldset class="grup-catatan" data-kelompok="{{ t.kelompok }}">
+                  <legend>{{ t.kelompok }}</legend>
+                {% set ns.kel = t.kelompok %}
+              {% endif %}
+              <label class="pilih-catatan" title="{{ t.nama or t.kelompok }}"
+                     data-cari="{{ (t.kode ~ ' ' ~ (t.nama or '')) | lower }}">
+                <input type="checkbox" name="tipologi" value="{{ t.kode }}">
+                <span><b class="mono">{{ t.kode }}</b>{{ ' — ' ~ t.nama if t.nama }}</span>
+              </label>
+            {% endfor %}
             {% if ns.kel %}</fieldset>{% endif %}
-            <fieldset class="grup-catatan" data-kelompok="{{ t.kelompok }}">
-              <legend>{{ t.kelompok }}</legend>
-            {% set ns.kel = t.kelompok %}
-          {% endif %}
-          <label class="pilih-catatan" title="{{ t.nama or t.kelompok }}">
-            <input type="checkbox" name="tipologi" value="{{ t.kode }}">
-            <span><b class="mono">{{ t.kode }}</b>{{ ' — ' ~ t.nama if t.nama }}</span>
-          </label>
-        {% endfor %}
-        {% if ns.kel %}</fieldset>{% endif %}
-      </div>
+          </div>
+        </div>
+      </details>
     </div>
 
     <div class="bidang-isian isian-lebar">
-      <label>Catatan Kekurangan <span class="kecil redup">(boleh lebih dari satu)</span></label>
-      <div class="catatan-cepat" id="op-catatan-pilih">
-        {% for kel, daftar in grup_catatan %}
-          <fieldset class="grup-catatan" data-kelompok="{{ kel }}">
-            <legend>{{ kel }}</legend>
-            {% for c in daftar %}
-              <label class="pilih-catatan">
-                <input type="checkbox" name="catatan_kode" value="{{ c.kode }}">
-                <span>{{ c.teks }}</span>
-              </label>
+      <label>Catatan Kekurangan <span class="kecil redup">(boleh lebih dari satu, bisa dicari)</span></label>
+      <details class="pilih-ganda" id="op-catatan-pilih">
+        <summary class="pilih-ganda-tombol">
+          <span class="pilih-ganda-label kosong">— belum diisi —</span>
+          <svg class="ikon pilih-ganda-panah" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+        </summary>
+        <div class="pilih-ganda-isi">
+          <input type="search" class="pilih-ganda-cari lebar-penuh" autocomplete="off"
+                 placeholder="Cari catatan…">
+          <div class="pilih-ganda-daftar">
+            {% for kel, daftar in grup_catatan %}
+              <fieldset class="grup-catatan" data-kelompok="{{ kel }}">
+                <legend>{{ kel }}</legend>
+                {% for c in daftar %}
+                  <label class="pilih-catatan" data-cari="{{ c.teks | lower }}">
+                    <input type="checkbox" name="catatan_kode" value="{{ c.kode }}">
+                    <span>{{ c.teks }}</span>
+                  </label>
+                {% endfor %}
+              </fieldset>
+            {% else %}
+              <span class="kecil redup">Belum ada catatan baku.</span>
             {% endfor %}
-          </fieldset>
-        {% else %}
-          <span class="kecil redup">Belum ada catatan baku.</span>
-        {% endfor %}
-      </div>
+          </div>
+        </div>
+      </details>
     </div>
 
     <div class="bidang-isian isian-lebar">
@@ -202,6 +223,61 @@
     });
   }
 
+  /* ---- Dropdown centang-banyak yang bisa dicari (Tipologi, Catatan Kekurangan) ----
+     <details class="pilih-ganda">: ringkas saat tertutup (seperti kotak pilihan
+     biasa), menu berisi kotak cari + daftar tercentang saat dibuka. */
+  function siapkanPilihGanda(id, placeholder) {
+    var wadah = document.getElementById(id);
+    var label = wadah.querySelector('.pilih-ganda-label');
+    var cariIsi = wadah.querySelector('.pilih-ganda-cari');
+    var daftar = wadah.querySelector('.pilih-ganda-daftar');
+    var kotak = Array.prototype.slice.call(daftar.querySelectorAll('input[type=checkbox]'));
+
+    function perbarui() {
+      var dipilih = kotak.filter(function (c) { return c.checked; });
+      label.classList.toggle('kosong', !dipilih.length);
+      label.textContent = dipilih.length
+        ? dipilih.map(function (c) { return c.value; }).join(', ')
+        : placeholder;
+    }
+    kotak.forEach(function (c) { c.addEventListener('change', perbarui); });
+
+    cariIsi.addEventListener('input', function () {
+      var q = cariIsi.value.trim().toLowerCase();
+      daftar.querySelectorAll('.pilih-catatan').forEach(function (it) {
+        it.hidden = !(!q || (it.dataset.cari || '').indexOf(q) !== -1);
+      });
+      daftar.querySelectorAll('fieldset.grup-catatan').forEach(function (g) {
+        g.hidden = !g.querySelector('.pilih-catatan:not([hidden])');
+      });
+    });
+    // Enter di kotak cari jangan ikut mengirim borang
+    cariIsi.addEventListener('keydown', function (e) { if (e.key === 'Enter') e.preventDefault(); });
+
+    wadah.addEventListener('toggle', function () {
+      if (!wadah.open) return;
+      cariIsi.value = '';
+      daftar.querySelectorAll('.pilih-catatan, fieldset.grup-catatan').forEach(function (el) {
+        el.hidden = false;
+      });
+      setTimeout(function () { cariIsi.focus(); }, 0);
+    });
+    document.addEventListener('click', function (e) {
+      if (wadah.open && !wadah.contains(e.target)) wadah.open = false;
+    });
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape' && wadah.open) {
+        wadah.open = false;
+        wadah.querySelector('summary').focus();
+      }
+    });
+
+    perbarui();
+    return { perbarui: perbarui };
+  }
+  var pilihTipologi = siapkanPilihGanda('op-tipologi-pilih', '— belum diisi —');
+  var pilihCatatan = siapkanPilihGanda('op-catatan-pilih', '— belum diisi —');
+
   function isiBorang(b) {
     document.getElementById('op-berkas').value = b.nomor_berkas || '';
     document.getElementById('op-hak').value = b.nomor_hak || '';
@@ -216,6 +292,8 @@
     document.getElementById('op-serah').checked = !!b.sudah_diserahkan;
     cekKode('op-tipologi-pilih', 'tipologi', b.tipologi);
     cekKode('op-catatan-pilih', 'catatan_kode', b.catatan_kode);
+    pilihTipologi.perbarui();
+    pilihCatatan.perbarui();
     document.getElementById('op-catatan').value = b.catatan || '';
     hasil.hidden = true;
     hasil.innerHTML = '';
@@ -265,6 +343,8 @@
   document.getElementById('op-reset').addEventListener('click', function () {
     document.getElementById('borang-opname').reset();
     Array.prototype.forEach.call(desa.options, function (opt) { opt.hidden = false; });
+    pilihTipologi.perbarui();
+    pilihCatatan.perbarui();
   });
 
   /* ---- Hapus baris lewat fetch, supaya tidak perlu memuat ulang halaman ---- */
