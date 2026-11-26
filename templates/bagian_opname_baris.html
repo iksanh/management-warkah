@@ -27,6 +27,19 @@
     {% else %}
       <span class="redup">—</span>
     {% endfor %}
+    {% set a = analisis.get(r.id) if analisis else None %}
+    {% if a %}
+      {% if a.status == 'sesuai' %}
+        <span class="tanda hijau" title="Sesuai pedoman tipologi K1 — {{ a.alasan | join('; ') }}">✓ sesuai</span>
+      {% elif a.status == 'tidak_sesuai' %}
+        <span class="tanda oranye"
+              title="Berdasarkan Catatan Kekurangan/Keterangan, kemungkinan lebih tepat {{ a.disarankan | join(' atau ') }} — {{ a.alasan | join('; ') }}">
+          ⚠ cek: {{ a.disarankan | join('/') }}
+        </span>
+      {% else %}
+        <span class="tanda abu" title="Catatan Kekurangan/Keterangan tambahan belum cukup jelas untuk dinilai otomatis.">? belum jelas</span>
+      {% endif %}
+    {% endif %}
   </td>
   <td class="kecil">
     {% set teks = [] %}
