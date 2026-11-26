@@ -3551,12 +3551,17 @@ def cari_bukti_tipologi(teks):
 
 
 def bukti_tipologi(catatan_kode, catatan, peta_catatan, tidak_ditemukan=False):
-    """Kumpulkan semua bukti tipologi dari satu baris: Catatan Kekurangan
-    yang dicentang (lewat CATATAN_KE_TIPOLOGI, pasti/tidak pernah meleset),
-    Keterangan tambahan bebas (lewat kata kunci, lihat cari_bukti_tipologi),
-    dan tanda "berkas tidak ditemukan saat diperiksa" (selalu T5).
+    """Kumpulkan semua bukti tipologi dari SELURUH isian satu baris: tiap
+    Catatan Kekurangan yang dicentang, Keterangan tambahan bebas, dan tanda
+    "berkas tidak ditemukan saat diperiksa" (selalu T5) -- tidak ada satu pun
+    sumber yang dilewati.
 
-    Kode -> daftar alasan singkat; tiap sumber dinilai TERPISAH baru
+    Tiap Catatan Kekurangan dinilai DUA lapis sekaligus: lewat pemetaan tetap
+    CATATAN_KE_TIPOLOGI (pasti/tidak pernah meleset karena daftarnya baku),
+    DAN lewat pencarian kata kunci ATURAN_TIPOLOGI yang sama seperti teks
+    bebas (jaga-jaga kalau teks bakunya kebetulan juga menyebut kode lain,
+    atau pemetaan tetapnya belum lengkap). Keterangan tambahan cuma lewat
+    kata kunci karena memang teks bebas. Tiap sumber dinilai TERPISAH baru
     digabung, supaya satu baris yang mencentang beberapa catatan dari
     kelompok masalah berbeda tetap ketahuan semuanya (lihat analisis_tipologi).
     """
@@ -3571,8 +3576,10 @@ def bukti_tipologi(catatan_kode, catatan, peta_catatan, tidak_ditemukan=False):
         k = k.strip()
         if not k:
             continue
+        teks = peta_catatan.get(k, k)
         for kode in CATATAN_KE_TIPOLOGI.get(k, []):
-            tambah({kode: ['tercentang "%s"' % peta_catatan.get(k, k)]})
+            tambah({kode: ['tercentang "%s"' % teks]})
+        tambah(cari_bukti_tipologi(teks))
     if catatan:
         tambah(cari_bukti_tipologi(catatan))
     if tidak_ditemukan:
