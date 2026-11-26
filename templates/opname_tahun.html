@@ -162,6 +162,67 @@
   </a>
 </div>
 
+{# ---- Filter baris tabel ---- #}
+<div class="kartu" style="margin-bottom:8px">
+  <div class="baris-borang" style="gap:8px;align-items:flex-end;flex-wrap:wrap">
+    <div class="bidang-isian" style="flex:1;min-width:140px">
+      <label for="filter-kecamatan">Kecamatan</label>
+      <select id="filter-kecamatan">
+        <option value="">Semua kecamatan</option>
+        {% for k in wilayah | map(attribute='nama_kecamatan') | unique %}
+          <option value="{{ k }}">{{ k }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="bidang-isian" style="flex:1;min-width:140px">
+      <label for="filter-petugas">Petugas Input</label>
+      <select id="filter-petugas">
+        <option value="">Semua petugas</option>
+        {% for p in daftar_petugas_input %}
+          <option value="{{ p }}">{{ p }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="bidang-isian" style="flex:1;min-width:140px">
+      <label for="filter-tipologi">Tipologi</label>
+      <select id="filter-tipologi">
+        <option value="">Semua tipologi</option>
+        <option value="__kosong__">— Belum diisi</option>
+        {% for t in daftar_tipologi %}
+          <option value="{{ t.kode }}">{{ t.kode }}{{ ' — ' ~ t.nama if t.nama }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="bidang-isian" style="flex:1;min-width:130px">
+      <label for="filter-serah">Penyerahan</label>
+      <select id="filter-serah">
+        <option value="">Semua</option>
+        <option value="1">Sudah</option>
+        <option value="0">Belum</option>
+      </select>
+    </div>
+    <div class="bidang-isian" style="flex:1;min-width:140px">
+      <label for="filter-status-cek">Status Cek Tipologi</label>
+      <select id="filter-status-cek">
+        <option value="">Semua status</option>
+        <option value="sesuai">✓ Sesuai</option>
+        <option value="tidak_sesuai">⚠ Perlu Cek</option>
+        <option value="tanpa_info">? Belum Jelas</option>
+        <option value="disetujui">✓ Disetujui Admin</option>
+        <option value="kosong">— Tipologi kosong</option>
+      </select>
+    </div>
+    <div class="bidang-isian" style="flex:1;min-width:140px">
+      <label for="filter-cari">Cari (nomor/nama/desa)</label>
+      <input type="search" id="filter-cari" placeholder="ketik untuk menyaring…">
+    </div>
+    <div>
+      <button type="button" id="filter-reset" class="tombol kecil kedua">Reset Filter</button>
+    </div>
+  </div>
+  <p class="kecil redup" id="filter-info" style="margin:4px 0 0"></p>
+</div>
+
 <div class="kartu rapat">
   <div class="gulir">
     <table id="tabel-opname">
@@ -178,6 +239,7 @@
           <th>Sudah Diserahkan</th>
           <th>Tipologi Permasalahan</th>
           <th>Catatan Kekurangan</th>
+          <th>Petugas Input</th>
           <th class="tengah">Aksi</th>
         </tr>
       </thead>
@@ -186,11 +248,152 @@
   </div>
 </div>
 
+{# ---- Dialog Edit baris opname ---- #}
+<dialog class="modal-rinci" id="dialog-ubah-opname" aria-labelledby="judul-ubah-opname">
+  <form id="borang-ubah-opname" method="post" action="">
+    <div class="kepala-modal">
+      <div class="kepala-modal-teks">
+        <h2 id="judul-ubah-opname">Edit Baris Opname</h2>
+      </div>
+      <div class="kepala-modal-alat">
+        <button type="button" class="tombol-alat tutup-modal" aria-label="Tutup" title="Tutup (Esc)">
+          <svg class="ikon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>
+        </button>
+      </div>
+    </div>
+    <div class="badan-modal">
+      <div class="baris-borang tiga">
+        <div class="bidang-isian">
+          <label for="ubah-berkas">Nomor Berkas</label>
+          <input type="text" id="ubah-berkas" name="nomor_berkas" maxlength="100">
+        </div>
+        <div class="bidang-isian">
+          <label for="ubah-hak">Nomor Hak</label>
+          <input type="text" id="ubah-hak" name="nomor_hak" maxlength="100">
+        </div>
+        <div class="bidang-isian">
+          <label for="ubah-pemegang">Nama Pemegang Hak</label>
+          <input type="text" id="ubah-pemegang" name="nama_pemegang" maxlength="200">
+        </div>
+      </div>
+      <div class="baris-borang tiga">
+        <div class="bidang-isian">
+          <label for="ubah-kecamatan">Kecamatan</label>
+          <select id="ubah-kecamatan">
+            <option value="">Semua kecamatan</option>
+            {% for k in wilayah | map(attribute='nama_kecamatan') | unique %}
+              <option value="{{ k }}">{{ k }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="bidang-isian">
+          <label for="ubah-desa">Desa/Kelurahan</label>
+          <select id="ubah-desa" name="wilayah_id" required>
+            <option value="">— pilih desa/kelurahan —</option>
+            {% for w in wilayah %}
+              <option value="{{ w.id }}" data-kecamatan="{{ w.nama_kecamatan }}">
+                {{ w.nama_desa }} ({{ w.nama_kecamatan }})
+              </option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="bidang-isian">
+          <label for="ubah-jenis">Jenis Hak</label>
+          <select id="ubah-jenis" name="jenis_hak" required>
+            <option value="">— pilih jenis hak —</option>
+            {% for j in daftar_hak %}
+              <option value="{{ j.kode }}">{{ j.nama }}</option>
+            {% endfor %}
+          </select>
+        </div>
+      </div>
+      <div class="bidang-isian">
+        <label for="ubah-luas">Luas (m²)</label>
+        <input type="text" id="ubah-luas" name="luas" inputmode="numeric" maxlength="10">
+      </div>
+      <div class="bidang-isian isian-lebar">
+        <label>Tipologi Permasalahan</label>
+        <details class="pilih-ganda" id="ubah-tipologi-pilih">
+          <summary class="pilih-ganda-tombol">
+            <span class="pilih-ganda-label kosong">— belum diisi —</span>
+            <svg class="ikon pilih-ganda-panah" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+          </summary>
+          <div class="pilih-ganda-isi">
+            <input type="search" class="pilih-ganda-cari lebar-penuh" autocomplete="off"
+                   placeholder="Cari kode atau nama tipologi…">
+            <div class="pilih-ganda-daftar">
+              {% set ns2 = namespace(kel='') %}
+              {% for t in daftar_tipologi %}
+                {% if t.kelompok != ns2.kel %}
+                  {% if ns2.kel %}</fieldset>{% endif %}
+                  <fieldset class="grup-catatan" data-kelompok="{{ t.kelompok }}">
+                    <legend>{{ t.kelompok }}</legend>
+                  {% set ns2.kel = t.kelompok %}
+                {% endif %}
+                <label class="pilih-catatan" title="{{ t.nama or t.kelompok }}"
+                       data-cari="{{ (t.kode ~ ' ' ~ (t.nama or '')) | lower }}">
+                  <input type="checkbox" name="tipologi" value="{{ t.kode }}">
+                  <span><b class="mono">{{ t.kode }}</b>{{ ' — ' ~ t.nama if t.nama }}</span>
+                </label>
+              {% endfor %}
+              {% if ns2.kel %}</fieldset>{% endif %}
+            </div>
+          </div>
+        </details>
+      </div>
+      <div class="bidang-isian isian-lebar">
+        <label>Catatan Kekurangan</label>
+        <details class="pilih-ganda" id="ubah-catatan-pilih">
+          <summary class="pilih-ganda-tombol">
+            <span class="pilih-ganda-label kosong">— belum diisi —</span>
+            <svg class="ikon pilih-ganda-panah" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+          </summary>
+          <div class="pilih-ganda-isi">
+            <input type="search" class="pilih-ganda-cari lebar-penuh" autocomplete="off"
+                   placeholder="Cari catatan…">
+            <div class="pilih-ganda-daftar">
+              {% for kel, daftar in grup_catatan %}
+                <fieldset class="grup-catatan" data-kelompok="{{ kel }}">
+                  <legend>{{ kel }}</legend>
+                  {% for c in daftar %}
+                    <label class="pilih-catatan" data-cari="{{ c.teks | lower }}">
+                      <input type="checkbox" name="catatan_kode" value="{{ c.kode }}">
+                      <span>{{ c.teks }}</span>
+                    </label>
+                  {% endfor %}
+                </fieldset>
+              {% else %}
+                <span class="kecil redup">Belum ada catatan baku.</span>
+              {% endfor %}
+            </div>
+          </div>
+        </details>
+      </div>
+      <div class="bidang-isian isian-lebar">
+        <label for="ubah-catatan">Keterangan tambahan</label>
+        <textarea id="ubah-catatan" name="catatan" rows="2" class="lebar-penuh"></textarea>
+      </div>
+      <div class="kotak-pilihan">
+        <label class="pilih-besar">
+          <input type="checkbox" id="ubah-serah" name="sudah_diserahkan" value="1">
+          <span>Sertipikat sudah diserahkan ke pemohon</span>
+        </label>
+      </div>
+      <div id="ubah-galat" class="pesan awas" hidden></div>
+    </div>
+    <div class="kaki-modal">
+      <button type="submit" class="hijau">Simpan perubahan</button>
+      <button type="button" class="tombol kedua tutup-modal">Batal</button>
+    </div>
+  </form>
+</dialog>
+
 <script>
 (function () {
   var TAHUN = {{ tahun }};
+  var IS_ADMIN = {{ 'true' if admin else 'false' }};
 
-  /* ---- Kecamatan menyaring pilihan Desa (opsional, keduanya tetap bisa ketik) ---- */
+  /* ---- Kecamatan menyaring pilihan Desa (borang Tambah) ---- */
   var kec = document.getElementById('op-kecamatan');
   var desa = document.getElementById('op-desa');
   kec.addEventListener('change', function () {
@@ -202,7 +405,7 @@
     if (desa.selectedOptions[0] && desa.selectedOptions[0].hidden) desa.value = '';
   });
 
-  /* ---- Cari dari Daftar Residu: isi borang otomatis dari hasil yang dipilih ---- */
+  /* ---- Cari dari Daftar Residu ---- */
   var cari = document.getElementById('cari-opname');
   var hasil = document.getElementById('hasil-cari-opname');
   var jeda = null;
@@ -214,20 +417,19 @@
     return e;
   }
 
-  // Centang checkbox yang kodenya ada di kodeStr ("T1.1,T2.2"), lepas sisanya
   function cekKode(wadahId, nama, kodeStr) {
     var kode = (kodeStr || '').split(',').map(function (s) { return s.trim(); }).filter(Boolean);
     var wadah = document.getElementById(wadahId);
+    if (!wadah) return;
     wadah.querySelectorAll('input[name="' + nama + '"]').forEach(function (cb) {
       cb.checked = kode.indexOf(cb.value) !== -1;
     });
   }
 
-  /* ---- Dropdown centang-banyak yang bisa dicari (Tipologi, Catatan Kekurangan) ----
-     <details class="pilih-ganda">: ringkas saat tertutup (seperti kotak pilihan
-     biasa), menu berisi kotak cari + daftar tercentang saat dibuka. */
+  /* ---- Dropdown centang-banyak (Tipologi, Catatan) ---- */
   function siapkanPilihGanda(id, placeholder) {
     var wadah = document.getElementById(id);
+    if (!wadah) return { perbarui: function(){} };
     var label = wadah.querySelector('.pilih-ganda-label');
     var cariIsi = wadah.querySelector('.pilih-ganda-cari');
     var daftar = wadah.querySelector('.pilih-ganda-daftar');
@@ -251,7 +453,6 @@
         g.hidden = !g.querySelector('.pilih-catatan:not([hidden])');
       });
     });
-    // Enter di kotak cari jangan ikut mengirim borang
     cariIsi.addEventListener('keydown', function (e) { if (e.key === 'Enter') e.preventDefault(); });
 
     wadah.addEventListener('toggle', function () {
@@ -275,8 +476,11 @@
     perbarui();
     return { perbarui: perbarui };
   }
+
   var pilihTipologi = siapkanPilihGanda('op-tipologi-pilih', '— belum diisi —');
   var pilihCatatan = siapkanPilihGanda('op-catatan-pilih', '— belum diisi —');
+  var pilihUbahTipologi = siapkanPilihGanda('ubah-tipologi-pilih', '— belum diisi —');
+  var pilihUbahCatatan = siapkanPilihGanda('ubah-catatan-pilih', '— belum diisi —');
 
   function isiBorang(b) {
     document.getElementById('op-berkas').value = b.nomor_berkas || '';
@@ -347,7 +551,126 @@
     pilihCatatan.perbarui();
   });
 
-  /* ---- Tombol "Cek Tipologi": tampilkan hasil analisis sesuai/tidaknya ---- */
+  /* ---- Filter baris tabel ---- */
+  var filterKec = document.getElementById('filter-kecamatan');
+  var filterPetugas = document.getElementById('filter-petugas');
+  var filterTipologi = document.getElementById('filter-tipologi');
+  var filterSerah = document.getElementById('filter-serah');
+  var filterStatus = document.getElementById('filter-status-cek');
+  var filterCari = document.getElementById('filter-cari');
+  var filterInfo = document.getElementById('filter-info');
+
+  function terapkanFilter() {
+    var kecVal = filterKec.value.toLowerCase();
+    var petugasVal = filterPetugas.value.toLowerCase();
+    var tipVal = filterTipologi.value;
+    var serahVal = filterSerah.value;
+    var statusVal = filterStatus.value.toLowerCase();
+    var cariVal = filterCari.value.trim().toLowerCase();
+    var tbody = document.getElementById('tabel-opname-isi');
+    var rows = tbody.querySelectorAll('tr[data-id]');
+    var tampil = 0;
+    rows.forEach(function (tr) {
+      var kecOk = !kecVal || (tr.dataset.kecamatan || '').toLowerCase() === kecVal;
+      var petugasOk = !petugasVal || (tr.dataset.petugas || '').toLowerCase() === petugasVal;
+      var kodes = (tr.dataset.tipologi || '').split(',').map(function (s) { return s.trim(); }).filter(Boolean);
+      var tipOk = !tipVal || (tipVal === '__kosong__' ? kodes.length === 0 : kodes.indexOf(tipVal) !== -1);
+      var serahOk = !serahVal || (tr.dataset.serah || '') === serahVal;
+      var statusOk = !statusVal || (tr.dataset.statusCek || '').toLowerCase() === statusVal;
+      var cariOk = !cariVal || tr.textContent.toLowerCase().indexOf(cariVal) !== -1;
+      var tampilkan = kecOk && petugasOk && tipOk && serahOk && statusOk && cariOk;
+      tr.style.display = tampilkan ? '' : 'none';
+      if (tampilkan) tampil++;
+    });
+    filterInfo.textContent = (kecVal || petugasVal || tipVal || serahVal || statusVal || cariVal)
+      ? (tampil + ' dari ' + rows.length + ' baris ditampilkan')
+      : '';
+  }
+
+  [filterKec, filterPetugas, filterTipologi, filterSerah, filterStatus].forEach(function (el) {
+    el.addEventListener('change', terapkanFilter);
+  });
+  filterCari.addEventListener('input', terapkanFilter);
+  document.getElementById('filter-reset').addEventListener('click', function () {
+    filterKec.value = '';
+    filterPetugas.value = '';
+    filterTipologi.value = '';
+    filterSerah.value = '';
+    filterStatus.value = '';
+    filterCari.value = '';
+    terapkanFilter();
+  });
+
+  /* ---- Dialog Edit baris ---- */
+  var dialogUbah = document.getElementById('dialog-ubah-opname');
+  var borangUbah = document.getElementById('borang-ubah-opname');
+  var ubahGalat = document.getElementById('ubah-galat');
+  var ubahKec = document.getElementById('ubah-kecamatan');
+  var ubahDesa = document.getElementById('ubah-desa');
+
+  ubahKec.addEventListener('change', function () {
+    var pilih = ubahKec.value;
+    Array.prototype.forEach.call(ubahDesa.options, function (opt) {
+      if (!opt.value) return;
+      opt.hidden = pilih !== '' && opt.dataset.kecamatan !== pilih;
+    });
+    if (ubahDesa.selectedOptions[0] && ubahDesa.selectedOptions[0].hidden) ubahDesa.value = '';
+  });
+
+  document.getElementById('tabel-opname-isi').addEventListener('click', function (e) {
+    var tombol = e.target.closest('.tombol-ubah-opname');
+    if (!tombol) return;
+    var d = tombol.dataset;
+    // Isi dialog dari data-* atribut tombol
+    document.getElementById('ubah-berkas').value = d.nomorBerkas || '';
+    document.getElementById('ubah-hak').value = d.nomorHak || '';
+    document.getElementById('ubah-pemegang').value = d.namaPemegang || '';
+    ubahKec.value = d.namaKecamatan || '';
+    Array.prototype.forEach.call(ubahDesa.options, function (opt) { opt.hidden = false; });
+    if (d.wilayahId) ubahDesa.value = d.wilayahId;
+    document.getElementById('ubah-jenis').value = d.jenisHak || '';
+    document.getElementById('ubah-luas').value = d.luas || '';
+    document.getElementById('ubah-serah').checked = d.sudahDiserahkan === '1';
+    cekKode('ubah-tipologi-pilih', 'tipologi', d.tipologi);
+    cekKode('ubah-catatan-pilih', 'catatan_kode', d.catatanKode);
+    pilihUbahTipologi.perbarui();
+    pilihUbahCatatan.perbarui();
+    document.getElementById('ubah-catatan').value = d.catatan || '';
+    borangUbah.action = '/opname/' + TAHUN + '/' + d.id + '/ubah';
+    ubahGalat.hidden = true;
+    ubahGalat.textContent = '';
+    dialogUbah.showModal();
+  });
+
+  borangUbah.addEventListener('submit', function (e) {
+    e.preventDefault();
+    var fd = new FormData(borangUbah);
+    fetch(borangUbah.action, { method: 'POST', body: fd })
+      .then(function (r) { return r.json(); })
+      .then(function (j) {
+        if (j.ok) {
+          dialogUbah.close();
+          segarkan(); // muat ulang baris tabel dari server
+        } else {
+          ubahGalat.textContent = j.pesan || 'Gagal menyimpan.';
+          ubahGalat.hidden = false;
+        }
+      })
+      .catch(function () {
+        ubahGalat.textContent = 'Gagal menghubungi server, coba lagi.';
+        ubahGalat.hidden = false;
+      });
+  });
+
+  // Tombol tutup modal
+  dialogUbah.querySelectorAll('.tutup-modal').forEach(function (btn) {
+    btn.addEventListener('click', function () { dialogUbah.close(); });
+  });
+  dialogUbah.addEventListener('click', function (e) {
+    if (e.target === dialogUbah) dialogUbah.close();
+  });
+
+  /* ---- Tombol "Cek Tipologi" ---- */
   document.getElementById('tabel-opname-isi').addEventListener('click', function (e) {
     var tombol = e.target.closest('.tombol-cek-tipologi');
     if (!tombol) return;
@@ -355,6 +678,8 @@
     var pesan;
     if (!status) {
       pesan = 'Tipologi Permasalahan belum diisi pada baris ini, tidak ada yang bisa dicek.';
+    } else if (status === 'disetujui') {
+      pesan = '✓ Tipologi ini telah disetujui oleh Admin sebagai "sesuai".\n\nPersetujuan Admin berlaku sebagai keputusan akhir meski analisis otomatis mungkin berbeda.';
     } else if (status === 'sesuai') {
       pesan = '✓ Sesuai pedoman tipologi K1.\n\n' + (tombol.dataset.alasan || '');
     } else if (status === 'tidak_sesuai') {
@@ -367,22 +692,37 @@
     window.alert(pesan);
   });
 
-  /* ---- Hapus baris lewat fetch, supaya tidak perlu memuat ulang halaman ---- */
+  /* ---- Setujui / batalkan tipologi (Admin) via fetch ---- */
   document.getElementById('tabel-opname-isi').addEventListener('submit', function (e) {
     var borang = e.target;
-    if (!borang.classList.contains('form-hapus-opname')) return;
-    e.preventDefault();
-    var baris = borang.closest('tr');
-    fetch(borang.action, { method: 'POST', headers: { 'X-Requested-With': 'XMLHttpRequest' } })
-      .then(function (r) { return r.json(); })
-      .then(function (j) {
-        if (j.ok && baris) baris.remove();
-        else if (!j.ok) window.alert(j.pesan || 'Baris tidak bisa dihapus.');
-      })
-      .catch(function () { window.alert('Gagal menghapus, coba lagi.'); });
+    if (borang.classList.contains('form-setujui-tipologi')) {
+      e.preventDefault();
+      var fd = new FormData(borang);
+      fetch(borang.action, { method: 'POST', body: fd })
+        .then(function (r) { return r.json(); })
+        .then(function (j) {
+          if (j.ok) segarkan();
+          else window.alert(j.pesan || 'Gagal.');
+        })
+        .catch(function () { window.alert('Gagal menghubungi server.'); });
+    }
+
+    /* ---- Hapus baris ---- */
+    if (borang.classList.contains('form-hapus-opname')) {
+      e.preventDefault();
+      if (!window.confirm(borang.dataset.konfirmasi || 'Hapus baris ini?')) return;
+      var baris = borang.closest('tr');
+      fetch(borang.action, { method: 'POST', headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+        .then(function (r) { return r.json(); })
+        .then(function (j) {
+          if (j.ok && baris) baris.remove();
+          else if (!j.ok) window.alert(j.pesan || 'Baris tidak bisa dihapus.');
+        })
+        .catch(function () { window.alert('Gagal menghapus, coba lagi.'); });
+    }
   });
 
-  /* ---- Pembaruan berkala: orang lain bisa sedang mengisi tahun yang sama ---- */
+  /* ---- Pembaruan berkala ---- */
   var isi = document.getElementById('tabel-opname-isi');
   var jumlah = document.getElementById('opname-jumlah');
   function segarkan() {
@@ -392,6 +732,7 @@
         if (document.activeElement && isi.contains(document.activeElement)) return;
         isi.innerHTML = j.html;
         jumlah.textContent = j.jumlah;
+        terapkanFilter(); // pertahankan filter aktif setelah reload
       })
       .catch(function () {});
   }

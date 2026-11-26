@@ -397,6 +397,14 @@ TAMBAHAN_KOLOM = {
         ("tidak_ditemukan_alasan", "TEXT"),
         ("tidak_ditemukan_oleh", "TEXT"),
         ("tidak_ditemukan_pada", "TEXT"),
+        # petugas yang menginput baris opname fisik (diisi saat simpan pertama)
+        ("petugas_input", "TEXT"),
+        # status persetujuan tipologi oleh Admin:
+        #   NULL  = belum dinilai / mengikuti analisis otomatis
+        #   'disetujui' = Admin menyatakan tipologi sudah sesuai (override analisis)
+        ("tipologi_disetujui", "TEXT"),
+        ("tipologi_disetujui_oleh", "TEXT"),
+        ("tipologi_disetujui_pada", "TEXT"),
     ],
     "petugas": [
         ("username", "TEXT"),
