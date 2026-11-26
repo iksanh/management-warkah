@@ -3680,57 +3680,105 @@ async def opname_rekap_petugas(request: Request):
         request, baris=baris, total=total))
 
 
-async def opname_export_xlsx(request: Request):
-    """Unduh matriks tipologi K1 PTSL, satu lembar per tahun (2017-2026).
+# Tata letak lembar Matriks K1, disalin dari berkas contoh
+# "format-Matriks K1_Kantor Pertanahan Kabupaten Bone Bolango.xlsx": Calibri 12
+# tidak tebal, semua sel rata tengah dengan garis tipis, nomor berupa teks "1.",
+# tinggi baris judul 29,4 dan baris isi 15,6. Lebar A-E mengikuti contoh;
+# kolom tipologi dan Jumlah memakai lebar bawaan Excel seperti contohnya.
+KEPALA_MATRIKS_K1 = (["No.", "Kantor Pertanahan", "Kecamatan", "Desa/Kelurahan",
+                      "Nomor Berkas", "Tahun"] + KOLOM_MATRIKS_TIPOLOGI + ["Jumlah"])
+LEBAR_MATRIKS_K1 = {"A": 5.21875, "B": 18.5546875, "C": 12.0, "D": 17.44140625, "E": 18.0}
 
-    Formatnya mengikuti contoh matriks yang diminta Tim Monitoring Evaluasi
-    PTSL: satu baris per berkas, satu kolom per kode tipologi berisi tanda
-    "v", dan kolom Jumlah berisi berapa kode yang tertanda pada baris itu.
+
+def buku_matriks_k1(lembar):
+    """Susun buku Excel Matriks K1; ``lembar`` = [(nama lembar, baris residu)].
+
+    Satu baris per berkas; tiap kolom kode tipologi diberi tanda "v" bila
+    kode itu tercatat pada baris residu (kolom tipologi bisa berisi beberapa
+    kode dipisah koma), dan Jumlah = banyaknya kode yang tertanda.
     """
     from openpyxl import Workbook
-    from openpyxl.styles import Alignment, Font
-    from openpyxl.utils import get_column_letter as huruf
+    from openpyxl.styles import Alignment, Border, Font, Side
 
-    kon = db.sambung()
-    per_tahun = {t: opname_baris(kon, t) for t in TAHUN_OPNAME}
-    kon.close()
-
-    tebal = Font(bold=True)
-    tengah = Alignment(horizontal="center", vertical="center", wrap_text=True)
-    kepala = (["No.", "Kantor Pertanahan", "Kecamatan", "Desa", "Nomor Berkas", "Tahun"]
-              + KOLOM_MATRIKS_TIPOLOGI + ["Jumlah"])
+    huruf = Font(name="Calibri", size=12)
+    tengah = Alignment(horizontal="center", vertical="center")
+    tipis = Side(style="thin")
+    garis = Border(left=tipis, right=tipis, top=tipis, bottom=tipis)
 
     buku = Workbook()
     buku.remove(buku.active)
-    for t in TAHUN_OPNAME:
-        ls = buku.create_sheet(str(t))
-        ls.append(kepala)
-        for sel in ls[1]:
-            sel.font, sel.alignment = tebal, tengah
-        ls.row_dimensions[1].height = 24
-        for no, r in enumerate(per_tahun[t], start=1):
-            kode = [k.strip() for k in (r["tipologi"] or "").split(",") if k.strip()]
+    for nama, baris in lembar:
+        ls = buku.create_sheet(nama[:31])
+        ls.append(KEPALA_MATRIKS_K1)
+        for no, r in enumerate(baris, start=1):
+            kode = {k.strip() for k in (r["tipologi"] or "").split(",") if k.strip()}
             tanda = ["v" if k in kode else None for k in KOLOM_MATRIKS_TIPOLOGI]
-            ls.append([no, KANTOR_PERTANAHAN, r["nama_kecamatan"] or r["kecamatan_teks"],
-                      r["nama_desa"] or r["desa_teks"], r["nomor_berkas"], t]
-                     + tanda + [len(kode)])
-        for sel_col in ls["G1:W1"][0]:
-            sel_col.alignment = tengah
-        lebar = {"A": 6, "B": 24, "C": 18, "D": 18, "E": 16, "F": 9}
-        for c, lb in lebar.items():
-            ls.column_dimensions[c].width = lb
-        for c in range(7, 7 + len(KOLOM_MATRIKS_TIPOLOGI) + 1):
-            ls.column_dimensions[huruf(c)].width = 7
+            tahun = r["tahun"]
+            if isinstance(tahun, str) and tahun.strip().isdigit():
+                tahun = int(tahun)
+            ls.append(["%d." % no, KANTOR_PERTANAHAN,
+                       r["nama_kecamatan"] or r["kecamatan_teks"],
+                       r["nama_desa"] or r["desa_teks"], r["nomor_berkas"], tahun]
+                      + tanda + [sum(1 for t in tanda if t)])
+        for deret in ls.iter_rows():
+            for sel in deret:
+                sel.font, sel.alignment, sel.border = huruf, tengah, garis
+        ls.row_dimensions[1].height = 29.4
+        for i in range(2, ls.max_row + 1):
+            ls.row_dimensions[i].height = 15.6
+        # lebar contoh dipakai sebagai lebar terkecil; diperlebar bila isinya
+        # lebih panjang (mis. nama desa) supaya tidak terpotong garis sel
+        for c, lb in LEBAR_MATRIKS_K1.items():
+            terpanjang = max((len(str(s.value)) for s in ls[c][1:] if s.value), default=0)
+            ls.column_dimensions[c].width = max(lb, terpanjang * 1.15 + 2)
         ls.freeze_panes = "A2"
+    if not buku.sheetnames:
+        buku.create_sheet("Matriks K1").append(KEPALA_MATRIKS_K1)
     buku.active = 0
-
     wadah = io.BytesIO()
     buku.save(wadah)
+    return wadah.getvalue()
+
+
+def jawab_xlsx(isi, nama_berkas):
     return Response(
-        wadah.getvalue(),
-        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": 'attachment; filename='
-                '"matriks_tipologi_k1_bonbol_%s.xlsx"' % hari_ini()})
+        isi, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": 'attachment; filename="%s"' % nama_berkas})
+
+
+async def opname_export_xlsx(request: Request):
+    """Unduh Matriks K1 hasil opname fisik, satu lembar per tahun (2017-2026)."""
+    kon = db.sambung()
+    lembar = [(str(t), opname_baris(kon, t)) for t in TAHUN_OPNAME]
+    kon.close()
+    return jawab_xlsx(buku_matriks_k1(lembar),
+                      "matriks_tipologi_k1_bonbol_%s.xlsx" % hari_ini())
+
+
+async def residu_matriks_xlsx(request: Request):
+    """Unduh data residu dalam format Matriks K1, satu lembar per tahun.
+
+    Barisnya mengikuti saringan halaman Daftar Residu (sama seperti unduhan
+    Excel/PDF/CSV residu). Lembar dibuat hanya untuk tahun yang punya baris;
+    baris tanpa tahun dikumpulkan di lembar "Tanpa tahun" paling akhir.
+    """
+    qp = request.query_params
+    where, par = filter_residu(qp)
+    kon = db.sambung()
+    baris = kon.execute(
+        SQL_RESIDU + where + " ORDER BY w.nama_kecamatan, w.nama_desa, "
+        "r.nomor_berkas, r.nomor_hak", par).fetchall()
+    kon.close()
+
+    per_tahun = {}
+    for r in baris:
+        th = str(r["tahun"]).strip() if r["tahun"] is not None else ""
+        per_tahun.setdefault(th or "Tanpa tahun", []).append(r)
+    urut = sorted(per_tahun, key=lambda t: (not t.isdigit(), t))
+    lembar = [(t, per_tahun[t]) for t in urut]
+    return jawab_xlsx(buku_matriks_k1(lembar),
+                      nama_unduh_residu(qp, "xlsx").replace("residu_ptsl",
+                                                            "matriks_k1_residu_ptsl"))
 
 
 # --------------------------------------------------------------- akun & masuk
@@ -4070,6 +4118,7 @@ rute = [
     Route("/residu.csv", residu_csv),
     Route("/residu.xlsx", residu_xlsx),
     Route("/residu.pdf", residu_pdf),
+    Route("/residu/matriks.xlsx", residu_matriks_xlsx),
     Route("/residu/rekap", rekap_blanko),
     Route("/residu/rekap.csv", rekap_blanko_csv),
     Route("/residu/penyerahan", laporan_serah),
