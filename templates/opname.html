@@ -74,6 +74,18 @@
           </tr>
         {% endfor %}
       </tbody>
+      {% if tahun_list %}
+      <tfoot>
+        <tr>
+          <td><strong>JUMLAH SELURUHNYA</strong></td>
+          <td></td>
+          <td class="angka"><strong>{{ total.target_k1 | angka }}</strong></td>
+          <td class="angka"><strong>{{ total.realisasi_k1 | angka }}</strong></td>
+          <td class="angka"><strong>{{ total.jumlah | angka }}</strong></td>
+          <td></td>
+        </tr>
+      </tfoot>
+      {% endif %}
     </table>
   </div>
 </div>
