@@ -3430,6 +3430,110 @@ def kunci_opname(kon, nomor_hak):
     return "opname|%s" % os.urandom(8).hex()
 
 
+# Pola kata/frasa kunci tiap kode tipologi, disarikan dari Lampiran I Surat
+# Sekretaris Jenderal ATR/BPN Nomor HR.01/2123-100/XI/2022 (Petunjuk
+# Penyelesaian K1 PTSL 2017-2021). Dipakai analisis_tipologi() untuk MENILAI
+# kecocokan Tipologi Permasalahan yang sudah dipilih petugas terhadap isi
+# Catatan Kekurangan/Keterangan tambahan -- tidak pernah mengubah isiannya,
+# hanya menyarankan. T4 dan T9 sengaja tidak diberi pola: T4 adalah gabungan
+# T2+T3 tanpa ciri kata kunci sendiri, dan T9 ("lain-lain") memang tidak
+# punya kriteria selain tidak cocok T1-T8.
+ATURAN_TIPOLOGI = [
+    ("T1.1", ["tidak diketahui keberadaan", "tidak dapat dihubungi", "tidak bisa dihubungi",
+              "tidak berada di tempat", "merantau", "menunggu kedatangan", "sudah dihubungi"]),
+    ("T1.2", ["bphtb"]),
+    ("T1.3", ["tidak bersedia menerima sertipikat", "tidak pernah mengajukan permohonan",
+              "tidak pernah mengajukan", "tidak pernah mendaftar"]),
+    ("T1.4", ["bentuk bidang tidak sesuai", "bidang tertukar", "kesalahan luas",
+              "luas tidak sesuai", "luas sertipikat tidak sesuai", "salah nama peserta",
+              "double input", "dobel input", "data ganda", "data pemegang hak ganda",
+              "kesalahan jenis hak", "nama tidak sesuai ktp", "nama pemegang hak tidak sesuai ktp",
+              "nik belum ada", "nik tidak sesuai", "tempat/tanggal lahir tidak sesuai",
+              "tempat tanggal lahir tidak sesuai", "nomor hak/nib salah tulis",
+              "nomor hak salah tulis", "nib salah tulis", "letak desa/kecamatan tidak sesuai",
+              "beda nama", "nama pemegang hak kurang", "alamat pemegang hak sudah berubah"]),
+    ("T2.1", ["blanko hilang", "blanko rusak", "blanko tertukar",
+              "blanko buku tanah", "surat ukur tertukar"]),
+    ("T2.2", ["buku tanah belum ditandatangani", "buku tanah belum tanda tangan",
+              "sertipikat belum ditandatangani", "sertifikat belum ditandatangani",
+              "sertipkat belum ditandatangani", "pejabat sebelumnya belum tanda tangan",
+              "pejabat belum tanda tangan", "pejabat belum ttd"]),
+    ("T2.3", ["pbt dan su belum ditandatangani", "pbt belum ditandatangani",
+              "su belum ditandatangani", "risalah belum tanda tangan", "risalah belum ttd"]),
+    ("T2.4", ["kesalahan data fisik pada pbt", "data fisik pada pbt"]),
+    ("T3.1", ["ada di bank", "dijaminkan", "jaminan bank", "pihak ketiga lainnya",
+              "surat tanah di bank"]),
+    ("T3.2", ["bukti penguasaan ada di peserta", "ada di peserta ptsl"]),
+    ("T3.3", ["berkas belum ada", "belum ada alas hak", "alas hak belum lengkap",
+              "berkas belum pernah diserahkan", "belum diserahkan kembali oleh pemohon",
+              "berkas permohonan tidak ada", "fotokopi ktp", "fotokopi kartu keluarga",
+              "bukti lunas pbb", "surat pernyataan penguasaan fisik",
+              "surat keterangan waris", "surat tanah di bank/lampiran foto kopi",
+              "surat pernyataan belum diisi", "surat pernyataan beda luas",
+              "surat rekom belum ada", "surat keterangan absente",
+              "surat keterangan beda batas", "akta kematian ahli waris",
+              "ktp/kk ahli waris"]),
+    ("T5", ["hilang di kantor", "tidak ditemukan di kantor", "berkas hilang",
+            "sertipikat yang telah dicetak hilang", "buku tanah hilang"]),
+    ("T6", ["sengketa", "perkara"]),
+    ("T7", ["tumpang tindih", "kawasan hutan", "sudah terdaftar", "aset pemerintah",
+            "bumn", "bumd"]),
+    ("T8", ["data fisik tidak valid", "deliniasi tidak sesuai", "delineasi tidak sesuai",
+            "belah tahu", "salah bidang"]),
+]
+POLA_SEBUTAN_TIPOLOGI = re.compile(r"\bT([1-9](?:\.[1-4])?)\b", re.IGNORECASE)
+
+
+def teks_analisis_baris(r, peta_catatan):
+    """Gabungan teks Catatan Kekurangan + Keterangan tambahan satu baris residu."""
+    bagian = [peta_catatan.get(k, k) for k in (r["catatan_kode"] or "").split(",") if k]
+    if r["catatan"]:
+        bagian.append(r["catatan"])
+    return " ".join(bagian)
+
+
+def analisis_tipologi(tipologi_kode, teks, tidak_ditemukan=False):
+    """Nilai kecocokan Tipologi Permasalahan terhadap Catatan Kekurangan/Keterangan.
+
+    Hanya menilai berdasarkan ATURAN_TIPOLOGI (lihat sumbernya di atas) --
+    tidak pernah mengubah ``tipologi_kode``. None bila tipologinya sendiri
+    masih kosong (tidak ada yang perlu dinilai). Kembalian lain berupa dict
+    {status, disarankan, alasan}; status salah satu dari "sesuai" (kode yang
+    dipilih didukung bukti), "tidak_sesuai" (bukti menunjuk kode lain), atau
+    "tanpa_info" (catatan/keterangannya belum cukup jelas untuk dinilai).
+    """
+    dipilih = {k.strip() for k in (tipologi_kode or "").split(",") if k.strip()}
+    if not dipilih:
+        return None
+    t = (teks or "").lower()
+
+    # bukti per kode, kunci -> daftar alasan singkat; sebutan eksplisit kode
+    # ("T1.4 yaitu ...") adalah bukti terkuat karena petugas menuliskannya sendiri
+    bukti = {}
+    for m in POLA_SEBUTAN_TIPOLOGI.finditer(t):
+        bukti.setdefault("T" + m.group(1).upper(), []).append(
+            "disebut langsung di catatan/keterangan")
+    if tidak_ditemukan:
+        bukti.setdefault("T5", []).append('tercentang "berkas tidak ditemukan saat diperiksa"')
+    for kode, pola in ATURAN_TIPOLOGI:
+        for frasa in pola:
+            if frasa in t:
+                bukti.setdefault(kode, []).append('frasa "%s"' % frasa)
+                break
+
+    if not bukti:
+        return {"status": "tanpa_info", "disarankan": [], "alasan": []}
+
+    cocok = sorted(dipilih & set(bukti))
+    if cocok:
+        return {"status": "sesuai", "disarankan": cocok,
+                "alasan": ["%s: %s" % (k, bukti[k][0]) for k in cocok]}
+
+    urutan = sorted(bukti.items(), key=lambda kv: (-len(kv[1]), kv[0]))[:2]
+    return {"status": "tidak_sesuai", "disarankan": [k for k, _ in urutan],
+            "alasan": ["%s: %s" % (k, b[0]) for k, b in urutan]}
+
+
 async def opname_beranda(request: Request):
     """Daftar tahun opname: dibuka atau belum, dengan angka target/realisasi."""
     kon = db.sambung()
@@ -3528,11 +3632,13 @@ async def opname_halaman_tahun(request: Request):
         "SELECT kode, kelompok, nama FROM tipologi ORDER BY urut").fetchall()
     grup_catatan = kelompokkan_catatan(daftar_catatan(kon))
     peta_catatan = {c["kode"]: c["teks"] for c in daftar_catatan(kon, semua=True)}
+    analisis = {r["id"]: analisis_tipologi(r["tipologi"], teks_analisis_baris(r, peta_catatan),
+                                           bool(r["tidak_ditemukan"])) for r in baris}
     kon.close()
     return templates.TemplateResponse(request, "opname_tahun.html", konteks(
         request, tahun=tahun, info=info, baris=baris, jumlah=len(baris),
         wilayah=wilayah, daftar_hak=daftar_hak, daftar_tipologi=daftar_tipologi,
-        grup_catatan=grup_catatan, peta_catatan=peta_catatan,
+        grup_catatan=grup_catatan, peta_catatan=peta_catatan, analisis=analisis,
         tersimpan=request.query_params.get("tersimpan"),
         galat=request.query_params.get("galat")))
 
@@ -3543,9 +3649,11 @@ async def opname_baris_json(request: Request):
     kon = db.sambung()
     baris = opname_baris(kon, tahun)
     peta_catatan = {c["kode"]: c["teks"] for c in daftar_catatan(kon, semua=True)}
+    analisis = {r["id"]: analisis_tipologi(r["tipologi"], teks_analisis_baris(r, peta_catatan),
+                                           bool(r["tidak_ditemukan"])) for r in baris}
     kon.close()
     html = templates.get_template("bagian_opname_baris.html").render(
-        baris=baris, tahun=tahun, peta_catatan=peta_catatan)
+        baris=baris, tahun=tahun, peta_catatan=peta_catatan, analisis=analisis)
     return JSONResponse({"jumlah": len(baris), "html": html})
 
 
@@ -3666,7 +3774,7 @@ async def opname_hapus_baris(request: Request):
     return JSONResponse({"ok": True})
 
 
-async def opname_rekap_petugas(request: Request):
+def hitung_rekap_petugas(kon):
     """Rekap per petugas: berapa baris opname yang sudah diinput tiap orang.
 
     Sumbernya log_aktivitas, bukan kolom residu.diubah_oleh — diubah_oleh ikut
@@ -3677,7 +3785,6 @@ async def opname_rekap_petugas(request: Request):
     tidak pernah berubah lagi, jadi tetap benar siapa pengisinya walau baris
     residunya belakangan diedit orang lain — atau sudah dihapus lagi.
     """
-    kon = db.sambung()
     baris = kon.execute(
         "SELECT COALESCE(petugas, '(tanpa nama)') petugas, COUNT(*) jumlah, "
         "COUNT(DISTINCT substr(aksi, -4)) tahun, "
@@ -3690,9 +3797,28 @@ async def opname_rekap_petugas(request: Request):
     total = kon.execute(
         "SELECT COUNT(*) n FROM log_aktivitas WHERE aksi LIKE ?",
         (AKSI_TAMBAH_OPNAME + "%",)).fetchone()["n"]
+    return baris, total
+
+
+async def opname_rekap_petugas(request: Request):
+    kon = db.sambung()
+    baris, total = hitung_rekap_petugas(kon)
     kon.close()
     return templates.TemplateResponse(request, "opname_rekap.html", konteks(
         request, baris=baris, total=total))
+
+
+async def opname_rekap_json(request: Request):
+    """Rekap per petugas dalam JSON, untuk papan peringkat yang diperbarui berkala."""
+    kon = db.sambung()
+    baris, total = hitung_rekap_petugas(kon)
+    kon.close()
+    return JSONResponse({
+        "total": total,
+        "baris": [{"petugas": b["petugas"], "jumlah": b["jumlah"], "tahun": b["tahun"],
+                  "hari": b["hari"], "tgl_awal": b["tgl_awal"], "tgl_akhir": b["tgl_akhir"]}
+                 for b in baris],
+    })
 
 
 # Tata letak lembar Matriks K1, disalin dari berkas contoh
@@ -4159,6 +4285,7 @@ rute = [
     Route("/opname/export.xlsx", opname_export_xlsx),
     Route("/opname/cari.json", opname_cari_json),
     Route("/opname/rekap", opname_rekap_petugas),
+    Route("/opname/rekap.json", opname_rekap_json),
     Route("/opname/{tahun:int}", opname_halaman_tahun),
     Route("/opname/{tahun:int}/baris.json", opname_baris_json),
     Route("/opname/{tahun:int}/baris", opname_simpan_baris, methods=["POST"]),

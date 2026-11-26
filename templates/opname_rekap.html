@@ -8,8 +8,28 @@
   Jumlah baris yang sudah diinput tiap petugas lewat menu Opname Fisik Residu,
   seluruh tahun 2017–2026. Dihitung dari catatan aktivitas saat baris itu
   pertama kali dibuat, supaya tetap benar siapa pengisinya walau baris itu
-  belakangan diubah atau dihapus lagi dari menu lain.
+  belakangan diubah atau dihapus lagi dari menu lain. Papan peringkat di bawah
+  diperbarui sendiri setiap beberapa detik, tidak perlu memuat ulang halaman.
 </p>
+
+<div class="balapan-papan" id="balapan-papan">
+  {% for b in baris[:3] %}
+    {% set persen = (b.jumlah / (baris[0].jumlah or 1) * 100) | round(0, 'floor') | int %}
+    {% set persen = [persen, 4] | max %}
+    <div class="balapan-baris" data-petugas="{{ b.petugas }}">
+      <div class="balapan-peringkat">{{ ['🥇', '🥈', '🥉'][loop.index0] }}</div>
+      <div class="balapan-info">
+        <div class="balapan-nama">{{ b.petugas }}</div>
+        <div class="balapan-trek">
+          <div class="balapan-isi" style="width: {{ persen }}%"></div>
+        </div>
+      </div>
+      <div class="balapan-skor">{{ b.jumlah | angka }}</div>
+    </div>
+  {% else %}
+    <p class="balapan-kosong">Belum ada baris opname yang diinput.</p>
+  {% endfor %}
+</div>
 
 <div class="kartu rapat">
   <div class="gulir">
@@ -25,7 +45,7 @@
           <th>Tanggal Terakhir</th>
         </tr>
       </thead>
-      <tbody>
+      <tbody id="rekap-tabel-isi">
         {% for b in baris %}
           <tr>
             <td>{{ b.petugas }}</td>
@@ -44,7 +64,7 @@
       <tfoot>
         <tr>
           <td><strong>JUMLAH SELURUHNYA</strong></td>
-          <td class="angka"><strong>{{ total | angka }}</strong></td>
+          <td class="angka"><strong id="rekap-total">{{ total | angka }}</strong></td>
           <td colspan="5"></td>
         </tr>
       </tfoot>
@@ -52,5 +72,115 @@
     </table>
   </div>
 </div>
+
+<script>
+(function () {
+  var papan = document.getElementById('balapan-papan');
+  var isiTabel = document.getElementById('rekap-tabel-isi');
+  var totalEl = document.getElementById('rekap-total');
+  var EMAS = ['🥇', '🥈', '🥉'];
+
+  function formatAngka(n) {
+    return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+  }
+
+  function el(tag, kelas, teks) {
+    var e = document.createElement(tag);
+    if (kelas) e.className = kelas;
+    if (teks !== undefined && teks !== null) e.textContent = teks;
+    return e;
+  }
+
+  function barisBalapan(b, indeks, maksimal) {
+    var baris = el('div', 'balapan-baris');
+    baris.dataset.petugas = b.petugas;
+    var persen = maksimal ? Math.max(4, Math.floor(b.jumlah / maksimal * 100)) : 4;
+    baris.appendChild(el('div', 'balapan-peringkat', EMAS[indeks] || String(indeks + 1)));
+    var info = el('div', 'balapan-info');
+    info.appendChild(el('div', 'balapan-nama', b.petugas));
+    var trek = el('div', 'balapan-trek');
+    var isi = el('div', 'balapan-isi');
+    isi.style.width = persen + '%';
+    trek.appendChild(isi);
+    info.appendChild(trek);
+    baris.appendChild(info);
+    baris.appendChild(el('div', 'balapan-skor', formatAngka(b.jumlah)));
+    return baris;
+  }
+
+  function perbaruiPapan(tigaBesar) {
+    // FLIP: catat posisi lama tiap baris (berdasarkan nama petugas) sebelum
+    // DOM-nya diganti, supaya pertukaran peringkat terlihat bergeser halus,
+    // bukan meloncat tiba-tiba.
+    var posisiLama = {};
+    papan.querySelectorAll('.balapan-baris').forEach(function (e) {
+      posisiLama[e.dataset.petugas] = e.getBoundingClientRect().top;
+    });
+
+    papan.innerHTML = '';
+    if (!tigaBesar.length) {
+      papan.appendChild(el('p', 'balapan-kosong', 'Belum ada baris opname yang diinput.'));
+      return;
+    }
+    var maksimal = tigaBesar[0].jumlah;
+    tigaBesar.forEach(function (b, i) { papan.appendChild(barisBalapan(b, i, maksimal)); });
+
+    papan.querySelectorAll('.balapan-baris').forEach(function (e) {
+      var lama = posisiLama[e.dataset.petugas];
+      if (lama == null) return;
+      var delta = lama - e.getBoundingClientRect().top;
+      if (!delta) return;
+      e.style.transition = 'none';
+      e.style.transform = 'translateY(' + delta + 'px)';
+      requestAnimationFrame(function () {
+        requestAnimationFrame(function () {
+          e.style.transition = 'transform .5s ease';
+          e.style.transform = '';
+        });
+      });
+    });
+  }
+
+  function barisTabel(b) {
+    var tr = document.createElement('tr');
+    var rata = b.hari ? (b.jumlah / b.hari).toFixed(1) : '—';
+    var kolom = [
+      [b.petugas, ''],
+      [formatAngka(b.jumlah), 'angka'],
+      [formatAngka(b.tahun), 'angka'],
+      [formatAngka(b.hari), 'angka'],
+      [rata, 'angka'],
+      [b.tgl_awal || '—', 'mono kecil'],
+      [b.tgl_akhir || '—', 'mono kecil'],
+    ];
+    kolom.forEach(function (k) { tr.appendChild(el('td', k[1], k[0])); });
+    return tr;
+  }
+
+  function perbaruiTabel(semua, total) {
+    isiTabel.innerHTML = '';
+    if (!semua.length) {
+      var tr = document.createElement('tr');
+      tr.appendChild(el('td', 'kosong', 'Belum ada baris opname yang diinput.'));
+      tr.lastChild.colSpan = 7;
+      isiTabel.appendChild(tr);
+      return;
+    }
+    semua.forEach(function (b) { isiTabel.appendChild(barisTabel(b)); });
+    if (totalEl) totalEl.textContent = formatAngka(total);
+  }
+
+  function segarkan() {
+    fetch('/opname/rekap.json')
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        perbaruiPapan(data.baris.slice(0, 3));
+        perbaruiTabel(data.baris, data.total);
+      })
+      .catch(function () {});
+  }
+  setInterval(segarkan, 4000);
+})();
+</script>
 
 {% endblock %}
