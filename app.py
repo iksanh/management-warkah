@@ -3511,30 +3511,32 @@ ATURAN_TIPOLOGI = [
 ]
 POLA_SEBUTAN_TIPOLOGI = re.compile(r"\bT([1-9](?:\.[1-4])?)\b", re.IGNORECASE)
 
-
-def sumber_teks(catatan_kode, catatan, peta_catatan):
-    """Daftar potongan teks terpisah: satu per kode Catatan Kekurangan yang
-    dicentang, plus satu untuk Keterangan tambahan.
-
-    Sengaja TIDAK digabung jadi satu string -- kalau beberapa catatan yang
-    tidak berkaitan (mis. "Fotokopi KTP belum ada" dan "Risalah belum tanda
-    tangan") digabung dulu baru dicari kata kuncinya, bukti utnuk satu catatan
-    bisa ikut "membenarkan" tipologi yang sebenarnya cuma didukung catatan
-    lain. Lihat analisis_tipologi().
-    """
-    bagian = [peta_catatan.get(k, k) for k in (catatan_kode or "").split(",") if k]
-    if catatan:
-        bagian.append(catatan)
-    return bagian
-
-
-def sumber_teks_baris(r, peta_catatan):
-    """sumber_teks() untuk satu baris residu yang sudah tersimpan."""
-    return sumber_teks(r["catatan_kode"], r["catatan"], peta_catatan)
+# Catatan Kekurangan itu daftar BAKU/TETAP (lihat CATATAN_BAKU di db.py), jadi
+# dipetakan LANGSUNG ke tipologi di sini -- bukan dicari kata kuncinya lewat
+# ATURAN_TIPOLOGI seperti teks bebas. Ini sengaja dipisah dari pencarian kata
+# kunci karena beberapa teks baku (mis. LB4 "Alas hak (surat keterangan
+# tanah) belum lengkap") punya sisipan kata yang membuat frasa pencarian kata
+# kunci biasa gagal cocok, sehingga baris itu selalu muncul "belum cukup
+# jelas" padahal catatannya sendiri sudah sangat jelas. LB6 dipetakan ke dua
+# kode (T2.2 dan T2.3) karena "tanda tangan belum lengkap" saja tidak
+# menyebut dokumennya yang mana. UM4/UM5 sengaja tidak dipetakan -- catatan
+# proses/administratif, tidak menunjuk satu tipologi tertentu.
+CATATAN_KE_TIPOLOGI = {
+    "LB1": ["T3.3"], "LB2": ["T3.3"], "LB3": ["T3.3"], "LB4": ["T3.3"],
+    "LB5": ["T3.3"], "LB6": ["T2.2", "T2.3"], "LB7": ["T3.3"], "LB8": ["T3.3"],
+    "PD1": ["T1.4"], "PD2": ["T1.4"], "PD3": ["T1.4"], "PD4": ["T1.4"],
+    "PD5": ["T1.4"], "PD6": ["T1.4"], "PD7": ["T1.4"], "PD8": ["T1.4"],
+    "UM1": ["T1.1"], "UM2": ["T1.1"], "UM3": ["T1.1"],
+}
 
 
 def cari_bukti_tipologi(teks):
-    """Kode tipologi yang didukung SATU potong teks saja, dengan alasannya."""
+    """Kode tipologi yang didukung SATU potong teks bebas, dengan alasannya.
+
+    Khusus teks bebas (Keterangan tambahan) -- Catatan Kekurangan yang
+    dicentang dipetakan langsung lewat CATATAN_KE_TIPOLOGI, lihat
+    bukti_tipologi().
+    """
     t = (teks or "").lower()
     bukti = {}
     for m in POLA_SEBUTAN_TIPOLOGI.finditer(t):
@@ -3548,18 +3550,43 @@ def cari_bukti_tipologi(teks):
     return bukti
 
 
-def analisis_tipologi(tipologi_kode, sumber_teks, tidak_ditemukan=False):
+def bukti_tipologi(catatan_kode, catatan, peta_catatan, tidak_ditemukan=False):
+    """Kumpulkan semua bukti tipologi dari satu baris: Catatan Kekurangan
+    yang dicentang (lewat CATATAN_KE_TIPOLOGI, pasti/tidak pernah meleset),
+    Keterangan tambahan bebas (lewat kata kunci, lihat cari_bukti_tipologi),
+    dan tanda "berkas tidak ditemukan saat diperiksa" (selalu T5).
+
+    Kode -> daftar alasan singkat; tiap sumber dinilai TERPISAH baru
+    digabung, supaya satu baris yang mencentang beberapa catatan dari
+    kelompok masalah berbeda tetap ketahuan semuanya (lihat analisis_tipologi).
+    """
+    bukti = {}
+
+    def tambah(sumbangan):
+        for kode, alasan in sumbangan.items():
+            sudah = bukti.setdefault(kode, [])
+            sudah.extend(a for a in alasan if a not in sudah)
+
+    for k in (catatan_kode or "").split(","):
+        k = k.strip()
+        if not k:
+            continue
+        for kode in CATATAN_KE_TIPOLOGI.get(k, []):
+            tambah({kode: ['tercentang "%s"' % peta_catatan.get(k, k)]})
+    if catatan:
+        tambah(cari_bukti_tipologi(catatan))
+    if tidak_ditemukan:
+        tambah({"T5": ['tercentang "berkas tidak ditemukan saat diperiksa"']})
+    return bukti
+
+
+def analisis_tipologi(tipologi_kode, catatan_kode, catatan, peta_catatan, tidak_ditemukan=False):
     """Nilai kecocokan Tipologi Permasalahan terhadap Catatan Kekurangan/Keterangan.
 
-    Tiap potongan di ``sumber_teks`` (lihat sumber_teks_baris) dinilai SENDIRI-
-    SENDIRI baru hasilnya digabung -- supaya satu baris yang mencentang
-    beberapa catatan dari kelompok masalah berbeda tetap ketahuan semuanya,
-    bukan cuma dianggap "sesuai" begitu salah satu kode yang dipilih kebetulan
-    didukung salah satu catatannya saja. Hanya menilai berdasarkan
-    ATURAN_TIPOLOGI (lihat sumbernya di atas) -- tidak pernah mengubah
-    ``tipologi_kode``. None bila tipologinya sendiri masih kosong (tidak ada
-    yang perlu dinilai). Kembalian lain berupa dict {status, disarankan,
-    alasan}; status salah satu dari:
+    Hanya menilai berdasarkan bukti_tipologi() di atas -- tidak pernah
+    mengubah ``tipologi_kode``. None bila tipologinya sendiri masih kosong
+    (tidak ada yang perlu dinilai). Kembalian lain berupa dict {status,
+    disarankan, alasan}; status salah satu dari:
       - "sesuai"       semua bukti yang ditemukan mendukung kode yang dipilih
       - "sebagian"     kode yang dipilih didukung bukti, TAPI ada bukti lain
                        yang menunjuk kode tambahan yang belum ikut dipilih
@@ -3570,13 +3597,7 @@ def analisis_tipologi(tipologi_kode, sumber_teks, tidak_ditemukan=False):
     if not dipilih:
         return None
 
-    bukti = {}
-    for teks in sumber_teks:
-        for kode, alasan in cari_bukti_tipologi(teks).items():
-            sudah = bukti.setdefault(kode, [])
-            sudah.extend(a for a in alasan if a not in sudah)
-    if tidak_ditemukan:
-        bukti.setdefault("T5", []).append('tercentang "berkas tidak ditemukan saat diperiksa"')
+    bukti = bukti_tipologi(catatan_kode, catatan, peta_catatan, tidak_ditemukan)
 
     if not bukti:
         return {"status": "tanpa_info", "disarankan": [], "alasan": []}
@@ -3689,8 +3710,9 @@ def muat_baris_opname(kon, tahun, query):
     wilayah_id = int(wid) if (wid or "").isdigit() else None
     baris = opname_baris(kon, tahun, wilayah_id)
     peta_catatan = {c["kode"]: c["teks"] for c in daftar_catatan(kon, semua=True)}
-    analisis = {r["id"]: analisis_tipologi(r["tipologi"], sumber_teks_baris(r, peta_catatan),
-                                           bool(r["tidak_ditemukan"])) for r in baris}
+    analisis = {r["id"]: analisis_tipologi(r["tipologi"], r["catatan_kode"], r["catatan"],
+                                           peta_catatan, bool(r["tidak_ditemukan"]))
+                for r in baris}
     petugas_input = peta_petugas_input(kon, tahun)
     disetujui = peta_tipologi_disetujui(kon, tahun)
 
@@ -3804,7 +3826,7 @@ async def opname_cek_tipologi(request: Request):
     catatan = (form.get("catatan") or "").strip()[:500] or None
     peta_catatan = {c["kode"]: c["teks"] for c in daftar_catatan(kon, semua=True)}
     kon.close()
-    a = analisis_tipologi(tipologi, sumber_teks(catatan_kode, catatan, peta_catatan))
+    a = analisis_tipologi(tipologi, catatan_kode, catatan, peta_catatan)
     return JSONResponse(a or {"status": None, "disarankan": [], "alasan": []})
 
 
