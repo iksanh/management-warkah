@@ -70,40 +70,48 @@
       </div>
     </div>
 
-    <div class="baris-borang tiga">
-      <div class="bidang-isian">
-        <label for="op-luas">Luas (m²)</label>
-        <input type="text" id="op-luas" name="luas" inputmode="numeric"
-               pattern="[0-9.]{1,10}" maxlength="10" placeholder="mis. 250">
+    <div class="bidang-isian">
+      <label for="op-luas">Luas (m²)</label>
+      <input type="text" id="op-luas" name="luas" inputmode="numeric"
+             pattern="[0-9.]{1,10}" maxlength="10" placeholder="mis. 250">
+    </div>
+
+    <div class="bidang-isian isian-lebar">
+      <label>Tipologi Permasalahan <span class="kecil redup">(boleh lebih dari satu)</span></label>
+      <div class="pilih-tipologi" id="op-tipologi-pilih">
+        {% set ns = namespace(kel='') %}
+        {% for t in daftar_tipologi %}
+          {% if t.kelompok != ns.kel %}
+            {% if ns.kel %}</fieldset>{% endif %}
+            <fieldset class="grup-catatan" data-kelompok="{{ t.kelompok }}">
+              <legend>{{ t.kelompok }}</legend>
+            {% set ns.kel = t.kelompok %}
+          {% endif %}
+          <label class="pilih-catatan" title="{{ t.nama or t.kelompok }}">
+            <input type="checkbox" name="tipologi" value="{{ t.kode }}">
+            <span><b class="mono">{{ t.kode }}</b>{{ ' — ' ~ t.nama if t.nama }}</span>
+          </label>
+        {% endfor %}
+        {% if ns.kel %}</fieldset>{% endif %}
       </div>
-      <div class="bidang-isian">
-        <label for="op-tipologi">Tipologi Permasalahan</label>
-        <select id="op-tipologi" name="tipologi">
-          <option value="">— belum diisi —</option>
-          {% set ns = namespace(kel='') %}
-          {% for t in daftar_tipologi %}
-            {% if t.kelompok != ns.kel %}
-              {% if ns.kel %}</optgroup>{% endif %}
-              <optgroup label="{{ t.kelompok }}">
-              {% set ns.kel = t.kelompok %}
-            {% endif %}
-            <option value="{{ t.kode }}">{{ t.kode }}{{ ' — ' ~ t.nama if t.nama }}</option>
-          {% endfor %}
-          {% if ns.kel %}</optgroup>{% endif %}
-        </select>
-      </div>
-      <div class="bidang-isian">
-        <label for="op-catatan-kode">Catatan Kekurangan</label>
-        <select id="op-catatan-kode" name="catatan_kode">
-          <option value="">— belum diisi —</option>
-          {% for kel, daftar in grup_catatan %}
-            <optgroup label="{{ kel }}">
-              {% for c in daftar %}
-                <option value="{{ c.kode }}">{{ c.teks }}</option>
-              {% endfor %}
-            </optgroup>
-          {% endfor %}
-        </select>
+    </div>
+
+    <div class="bidang-isian isian-lebar">
+      <label>Catatan Kekurangan <span class="kecil redup">(boleh lebih dari satu)</span></label>
+      <div class="catatan-cepat" id="op-catatan-pilih">
+        {% for kel, daftar in grup_catatan %}
+          <fieldset class="grup-catatan" data-kelompok="{{ kel }}">
+            <legend>{{ kel }}</legend>
+            {% for c in daftar %}
+              <label class="pilih-catatan">
+                <input type="checkbox" name="catatan_kode" value="{{ c.kode }}">
+                <span>{{ c.teks }}</span>
+              </label>
+            {% endfor %}
+          </fieldset>
+        {% else %}
+          <span class="kecil redup">Belum ada catatan baku.</span>
+        {% endfor %}
       </div>
     </div>
 
@@ -185,6 +193,15 @@
     return e;
   }
 
+  // Centang checkbox yang kodenya ada di kodeStr ("T1.1,T2.2"), lepas sisanya
+  function cekKode(wadahId, nama, kodeStr) {
+    var kode = (kodeStr || '').split(',').map(function (s) { return s.trim(); }).filter(Boolean);
+    var wadah = document.getElementById(wadahId);
+    wadah.querySelectorAll('input[name="' + nama + '"]').forEach(function (cb) {
+      cb.checked = kode.indexOf(cb.value) !== -1;
+    });
+  }
+
   function isiBorang(b) {
     document.getElementById('op-berkas').value = b.nomor_berkas || '';
     document.getElementById('op-hak').value = b.nomor_hak || '';
@@ -197,10 +214,8 @@
     if (b.jenis_hak) document.getElementById('op-jenis').value = b.jenis_hak;
     document.getElementById('op-luas').value = b.luas != null ? b.luas : '';
     document.getElementById('op-serah').checked = !!b.sudah_diserahkan;
-    var tipKode = (b.tipologi || '').split(',')[0].trim();
-    if (tipKode) document.getElementById('op-tipologi').value = tipKode;
-    var catKode = (b.catatan_kode || '').split(',')[0].trim();
-    if (catKode) document.getElementById('op-catatan-kode').value = catKode;
+    cekKode('op-tipologi-pilih', 'tipologi', b.tipologi);
+    cekKode('op-catatan-pilih', 'catatan_kode', b.catatan_kode);
     document.getElementById('op-catatan').value = b.catatan || '';
     hasil.hidden = true;
     hasil.innerHTML = '';

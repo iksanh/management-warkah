@@ -1451,6 +1451,17 @@ def kode_catatan(kon, form):
     return ",".join(unik) or None
 
 
+def kode_tipologi(kon, form):
+    """Kode tipologi yang dicentang, dirapikan jadi "T1.1,T2.2" (urutan tabel tipologi).
+
+    Dipakai borang Opname Fisik Residu, yang boleh mencentang lebih dari satu
+    kode sekaligus (mis. berkas yang sama bermasalah di T2.2 dan T3.3).
+    """
+    sah = [t["kode"] for t in kon.execute("SELECT kode FROM tipologi ORDER BY urut")]
+    dipilih = {k.strip() for k in form.getlist("tipologi")}
+    return ",".join(k for k in sah if k in dipilih) or None
+
+
 # label tab untuk baris residu yang kolom tahunnya kosong (NULL)
 TANPA_TAHUN = "(tanpa tahun)"
 
@@ -3378,6 +3389,10 @@ async def jalankan_impor_residu(request: Request):
 # supaya "mulai opname dari 0" per tahun tidak tercampur dengan baris lama
 # hasil impor/katalog.
 SUMBER_OPNAME = "Opname fisik K1"
+# awalan aksi log saat baris opname baru dibuat (lihat opname_rekap_petugas,
+# yang membaca log ini, bukan residu.diubah_oleh, supaya rekap tidak rusak
+# saat baris itu belakangan disentuh lagi dari menu lain)
+AKSI_TAMBAH_OPNAME = "Tambah baris opname fisik residu"
 TAHUN_OPNAME = list(range(2017, 2027))
 KANTOR_PERTANAHAN = "Kabupaten Bone Bolango"
 # urutan kolom tipologi di lembar Matriks K1, mengikuti Surat Sekjen di atas
@@ -3583,14 +3598,10 @@ async def opname_simpan_baris(request: Request):
     nomor_hak = (form.get("nomor_hak") or "").strip()[:100] or None
     nama_pemegang = (form.get("nama_pemegang") or "").strip()[:200] or None
     sudah = 1 if form.get("sudah_diserahkan") == "1" else 0
-    tipologi = (form.get("tipologi") or "").strip() or None
-    if tipologi and not kon.execute("SELECT 1 FROM tipologi WHERE kode = ?",
-                                    (tipologi,)).fetchone():
-        tipologi = None
-    catatan_kode = (form.get("catatan_kode") or "").strip() or None
-    if catatan_kode and not kon.execute("SELECT 1 FROM catatan_baku WHERE kode = ?",
-                                        (catatan_kode,)).fetchone():
-        catatan_kode = None
+    # keduanya boleh mencentang lebih dari satu kode, mis. berkas yang sama
+    # bermasalah di T2.2 dan T3.3 sekaligus (lihat kode_tipologi/kode_catatan)
+    tipologi = kode_tipologi(kon, form)
+    catatan_kode = kode_catatan(kon, form)
     catatan = (form.get("catatan") or "").strip()[:500] or None
 
     galat, luas = None, None
@@ -3629,7 +3640,7 @@ async def opname_simpan_baris(request: Request):
          w["nama_kecamatan"], nama_pemegang, luas, sudah, tipologi, catatan_kode,
          catatan, "Belum Ditindaklanjuti", SUMBER_OPNAME, sekarang(), siapa or None,
          sekarang()))
-    tulis_log(kon, siapa, "Tambah baris opname fisik residu %d" % tahun, bidang_id,
+    tulis_log(kon, siapa, "%s %d" % (AKSI_TAMBAH_OPNAME, tahun), bidang_id,
              "nomor hak %s" % (nomor_hak or nomor_berkas or "-"))
     kon.commit()
     kon.close()
@@ -3658,23 +3669,27 @@ async def opname_hapus_baris(request: Request):
 async def opname_rekap_petugas(request: Request):
     """Rekap per petugas: berapa baris opname yang sudah diinput tiap orang.
 
-    Mengikuti susunan kolom "Per petugas" di Rekap Pengecekan Blanko, tetapi
-    sumber datanya baris hasil Opname Fisik Residu (bukan centang blanko).
+    Sumbernya log_aktivitas, bukan kolom residu.diubah_oleh — diubah_oleh ikut
+    tertimpa setiap kali baris itu disentuh lagi dari menu lain (mis. centang
+    blanko atau Ubah di Daftar Residu), sehingga siapa yang benar-benar mengisi
+    baris itu lewat Opname Fisik Residu jadi tidak ketahuan lagi. Baris log
+    "Tambah baris ..." dicatat sekali saat baris itu pertama kali dibuat dan
+    tidak pernah berubah lagi, jadi tetap benar siapa pengisinya walau baris
+    residunya belakangan diedit orang lain — atau sudah dihapus lagi.
     """
     kon = db.sambung()
     baris = kon.execute(
-        "SELECT COALESCE(r.diubah_oleh, '(tanpa nama)') petugas, "
-        "COUNT(*) jumlah, COUNT(DISTINCT r.tahun) tahun, "
-        "COUNT(DISTINCT r.wilayah_id) desa, "
-        "COUNT(DISTINCT w.nama_kecamatan) kecamatan, "
-        "COUNT(DISTINCT substr(r.diubah_pada, 1, 10)) hari, "
-        "MIN(substr(r.diubah_pada, 1, 10)) tgl_awal, "
-        "MAX(substr(r.diubah_pada, 1, 10)) tgl_akhir "
-        "FROM residu r LEFT JOIN wilayah w ON w.id = r.wilayah_id "
-        "WHERE r.sumber = ? GROUP BY petugas ORDER BY jumlah DESC, petugas",
-        (SUMBER_OPNAME,)).fetchall()
-    total = kon.execute("SELECT COUNT(*) n FROM residu WHERE sumber = ?",
-                        (SUMBER_OPNAME,)).fetchone()["n"]
+        "SELECT COALESCE(petugas, '(tanpa nama)') petugas, COUNT(*) jumlah, "
+        "COUNT(DISTINCT substr(aksi, -4)) tahun, "
+        "COUNT(DISTINCT substr(waktu, 1, 10)) hari, "
+        "MIN(substr(waktu, 1, 10)) tgl_awal, "
+        "MAX(substr(waktu, 1, 10)) tgl_akhir "
+        "FROM log_aktivitas WHERE aksi LIKE ? "
+        "GROUP BY petugas ORDER BY jumlah DESC, petugas",
+        (AKSI_TAMBAH_OPNAME + "%",)).fetchall()
+    total = kon.execute(
+        "SELECT COUNT(*) n FROM log_aktivitas WHERE aksi LIKE ?",
+        (AKSI_TAMBAH_OPNAME + "%",)).fetchone()["n"]
     kon.close()
     return templates.TemplateResponse(request, "opname_rekap.html", konteks(
         request, baris=baris, total=total))
