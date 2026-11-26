@@ -497,6 +497,15 @@
     keluarModeUbah();
   });
 
+  /* ---- Buka otomatis mode Ubah kalau datang dari tautan "Ubah" di halaman
+     lain (mis. rincian per petugas di Rekap Petugas: /opname/{tahun}?ubah={id}) ---- */
+  (function () {
+    var idUbah = new URLSearchParams(location.search).get('ubah');
+    if (!idUbah) return;
+    var tombolUbah = document.querySelector('.tombol-ubah-opname[data-id="' + idUbah + '"]');
+    if (tombolUbah) tombolUbah.click();
+  })();
+
   /* ---- Tombol Admin "Setujui Tipologi": menimpa status jadi "disetujui admin" ---- */
   document.getElementById('tabel-opname-isi').addEventListener('click', function (e) {
     var tombol = e.target.closest('.tombol-setujui-tipologi');

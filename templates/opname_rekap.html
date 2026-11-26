@@ -21,7 +21,9 @@
     <div class="balapan-baris" data-petugas="{{ b.petugas }}">
       <div class="balapan-peringkat">{{ ['🥇', '🥈', '🥉'][loop.index0] }}</div>
       <div class="balapan-info">
-        <div class="balapan-nama">{{ b.petugas }}</div>
+        <div class="balapan-nama">
+          <a href="/opname/rekap/petugas/{{ b.petugas | urlencode }}">{{ b.petugas }}</a>
+        </div>
         <div class="balapan-trek">
           <div class="balapan-isi" style="width: {{ persen }}%"></div>
         </div>
@@ -50,7 +52,7 @@
       <tbody id="rekap-tabel-isi">
         {% for b in baris %}
           <tr>
-            <td>{{ b.petugas }}</td>
+            <td><a href="/opname/rekap/petugas/{{ b.petugas | urlencode }}">{{ b.petugas }}</a></td>
             <td class="angka">{{ b.jumlah | angka }}</td>
             <td class="angka">{{ b.tahun | angka }}</td>
             <td class="angka">{{ b.hari | angka }}</td>
@@ -76,6 +78,23 @@
 </div>
 
 {% if admin %}
+<div class="kartu">
+  <h2>Admin: Kualitas skor</h2>
+  <p class="jelas">
+    Supaya peringkat di atas bukan cuma soal kuantitas (banyak baris diinput),
+    tapi juga kualitas analisis tipologinya — tidak menyentuh data opnamenya
+    sama sekali, cuma baris yang statusnya masih "belum jelas" tidak ikut
+    dihitung di skor/papan peringkat.
+  </p>
+  <form method="post" action="/opname/rekap/filter-kualitas">
+    <label class="pilih-besar">
+      <input type="checkbox" onchange="this.form.requestSubmit()"
+             {{ 'checked' if kualitas_aktif else '' }}>
+      <span>Kecualikan baris berstatus tipologi "belum jelas" dari skor</span>
+    </label>
+  </form>
+</div>
+
 <div class="kartu">
   <h2>Admin: Kecualikan dari skor</h2>
   <p class="jelas">
@@ -168,13 +187,22 @@
     return e;
   }
 
+  function tautanPetugas(nama) {
+    var a = document.createElement('a');
+    a.href = '/opname/rekap/petugas/' + encodeURIComponent(nama);
+    a.textContent = nama;
+    return a;
+  }
+
   function barisBalapan(b, indeks, maksimal) {
     var baris = el('div', 'balapan-baris');
     baris.dataset.petugas = b.petugas;
     var persen = maksimal ? Math.max(4, Math.floor(b.jumlah / maksimal * 100)) : 4;
     baris.appendChild(el('div', 'balapan-peringkat', EMAS[indeks] || String(indeks + 1)));
     var info = el('div', 'balapan-info');
-    info.appendChild(el('div', 'balapan-nama', b.petugas));
+    var nama = el('div', 'balapan-nama');
+    nama.appendChild(tautanPetugas(b.petugas));
+    info.appendChild(nama);
     var trek = el('div', 'balapan-trek');
     var isi = el('div', 'balapan-isi');
     isi.style.width = persen + '%';
@@ -221,8 +249,10 @@
   function barisTabel(b) {
     var tr = document.createElement('tr');
     var rata = b.hari ? (b.jumlah / b.hari).toFixed(1) : '—';
+    var tdNama = document.createElement('td');
+    tdNama.appendChild(tautanPetugas(b.petugas));
+    tr.appendChild(tdNama);
     var kolom = [
-      [b.petugas, ''],
       [formatAngka(b.jumlah), 'angka'],
       [formatAngka(b.tahun), 'angka'],
       [formatAngka(b.hari), 'angka'],

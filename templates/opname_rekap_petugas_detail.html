@@ -1,0 +1,182 @@
+{% extends "dasar.html" %}
+{% block judul %}{{ petugas }} — Rekap Petugas — Aplikasi Warkah{% endblock %}
+{% block isi %}
+
+<p class="jelas"><a href="/opname/rekap" data-kembali>&larr; Rekap Petugas</a></p>
+<h1>Baris Opname Fisik Residu — {{ petugas }}</h1>
+<p class="jelas">
+  Semua baris (lintas tahun) yang pertama kali diinput oleh <strong>{{ petugas }}</strong>,
+  lewat menu Opname Fisik Residu — <strong>{{ jumlah | angka }}</strong> baris. Baris yang
+  belakangan diubah petugas lain tetap muncul di sini, karena ini dihitung dari siapa
+  yang MENCATAT PERTAMA KALI, bukan dari siapa yang terakhir menyentuhnya.
+</p>
+
+<div class="kartu rapat">
+  <div class="gulir">
+    <table id="tabel-rincian-petugas">
+      <thead>
+        <tr>
+          <th>No.</th>
+          <th>Tahun Berkas</th>
+          <th>Nomor Berkas</th>
+          <th>Desa/Kelurahan</th>
+          <th>Jenis Hak</th>
+          <th>Nomor Hak</th>
+          <th>Nama Pemegang Hak</th>
+          <th class="angka">Luas (m²)</th>
+          <th>Sudah Diserahkan</th>
+          <th>Tipologi Permasalahan</th>
+          <th>Catatan Kekurangan</th>
+          <th>Petugas Input</th>
+          <th class="tengah">Aksi</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in baris %}
+          {% set kunci = (r.tahun, "nomor hak " + (r.nomor_hak or r.nomor_berkas or '-')) %}
+          {% set a = analisis.get(r.id) %}
+          {% set d = disetujui.get(kunci) %}
+          <tr data-id="{{ r.id }}">
+            <td class="tengah">{{ loop.index }}</td>
+            <td class="mono">{{ r.tahun }}</td>
+            <td class="mono kecil">{{ r.nomor_berkas or '—' }}</td>
+            <td>
+              {{ r.nama_desa or r.desa_teks or '—' }}
+              <span class="kecil redup"> · {{ r.nama_kecamatan or r.kecamatan_teks or '—' }}</span>
+            </td>
+            <td class="kecil">{{ r.jenis_hak_teks or r.jenis_hak or '—' }}</td>
+            <td class="mono nowrap">{{ r.nomor_hak or r.nomor_hak_asli or '—' }}</td>
+            <td class="kecil">{{ r.nama_pemegang or '—' }}</td>
+            <td class="angka">{{ r.luas | angka if r.luas else '—' }}</td>
+            <td class="tengah">
+              {% if r.sudah_diserahkan %}
+                <span class="tanda hijau">Sudah</span>
+              {% else %}
+                <span class="tanda abu">Belum</span>
+              {% endif %}
+            </td>
+            <td class="kecil nowrap">
+              {% for k in (r.tipologi or '').split(',') if k %}
+                <span class="tanda abu" title="{{ k }}">{{ k }}</span>
+              {% else %}
+                <span class="redup">—</span>
+              {% endfor %}
+              {% if d %}
+                <span class="tanda hijau" title="Disetujui manual oleh {{ d[0] }}, {{ d[1] }}">✓ disetujui admin</span>
+              {% elif a %}
+                {% if a.status == 'sesuai' %}
+                  <span class="tanda hijau" title="Sesuai pedoman tipologi K1 — {{ a.alasan | join('; ') }}">✓ sesuai</span>
+                {% elif a.status == 'sebagian' %}
+                  <span class="tanda biru"
+                        title="Yang dicentang sudah didukung bukti, TAPI catatan/keterangannya juga mengarah ke tipologi lain yang belum ikut dicentang — {{ a.alasan | join('; ') }}">
+                    + ada indikasi: {{ a.disarankan | join('/') }}
+                  </span>
+                {% elif a.status == 'tidak_sesuai' %}
+                  <span class="tanda oranye"
+                        title="Berdasarkan Catatan Kekurangan/Keterangan, kemungkinan lebih tepat {{ a.disarankan | join(' atau ') }} — {{ a.alasan | join('; ') }}">
+                    ⚠ cek: {{ a.disarankan | join('/') }}
+                  </span>
+                {% else %}
+                  <span class="tanda abu" title="Catatan Kekurangan/Keterangan tambahan belum cukup jelas untuk dinilai otomatis.">? belum jelas</span>
+                {% endif %}
+              {% endif %}
+            </td>
+            <td class="kecil">
+              {% set teks = [] %}
+              {% for k in (r.catatan_kode or '').split(',') if k %}
+                {% set _ = teks.append(peta_catatan.get(k, k)) %}
+              {% endfor %}
+              {{ (teks | join('; ')) if teks else (r.catatan or '—') }}
+            </td>
+            <td class="kecil redup">{{ petugas_input.get(kunci, '-') }}</td>
+            <td class="tengah nowrap">
+              <button type="button" class="tombol kecil kedua tombol-cek-tipologi"
+                      data-status="{{ ('disetujui' if d else a.status) if (d or a) else '' }}"
+                      data-disarankan="{{ a.disarankan | join(', ') if a else '' }}"
+                      data-alasan="{{ a.alasan | join('\n') if a else '' }}">
+                Cek Tipologi
+              </button>
+              <a href="/opname/{{ r.tahun }}?ubah={{ r.id }}" class="tombol kecil kedua">Ubah</a>
+              {% if admin %}
+                <button type="button" class="tombol kecil kedua tombol-setujui-tipologi"
+                        data-tahun="{{ r.tahun }}" data-id="{{ r.id }}" data-disetujui="{{ 1 if d else 0 }}">
+                  {{ 'Batalkan Persetujuan' if d else 'Setujui Tipologi' }}
+                </button>
+              {% endif %}
+              <form method="post" action="/opname/{{ r.tahun }}/{{ r.id }}/hapus"
+                    class="form-hapus-opname" style="display:inline"
+                    data-konfirmasi="Hapus baris ini dari opname {{ r.tahun }}?">
+                <button type="submit" class="tombol kecil kedua">Hapus</button>
+              </form>
+            </td>
+          </tr>
+        {% else %}
+          <tr><td colspan="13" class="kosong">Belum ada baris yang diinput {{ petugas }}.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+(function () {
+  var tabel = document.getElementById('tabel-rincian-petugas');
+
+  /* ---- Tombol "Cek Tipologi": tampilkan hasil analisis sesuai/tidaknya ---- */
+  tabel.addEventListener('click', function (e) {
+    var tombol = e.target.closest('.tombol-cek-tipologi');
+    if (!tombol) return;
+    var status = tombol.dataset.status;
+    var disarankan = tombol.dataset.disarankan;
+    var alasan = tombol.dataset.alasan;
+    var pesan;
+    if (!status) {
+      pesan = 'Tipologi Permasalahan belum diisi pada baris ini, tidak ada yang bisa dicek.';
+    } else if (status === 'disetujui') {
+      pesan = '✓ Status tipologi sudah disetujui manual oleh Admin, menimpa hasil analisis otomatis.';
+    } else if (status === 'sesuai') {
+      pesan = '✓ Sesuai pedoman tipologi K1.\n\n' + (alasan || '');
+    } else if (status === 'sebagian') {
+      pesan = '+ Tipologi yang dicentang sudah didukung bukti, TAPI Catatan Kekurangan/'
+            + 'Keterangan tambahan juga mengarah ke tipologi lain yang belum ikut '
+            + 'dicentang: ' + disarankan + '\n\n' + (alasan || '');
+    } else if (status === 'tidak_sesuai') {
+      pesan = '⚠ Berdasarkan Catatan Kekurangan/Keterangan tambahan, kemungkinan '
+            + 'lebih tepat: ' + disarankan + '\n\n' + (alasan || '');
+    } else {
+      pesan = '? Catatan Kekurangan/Keterangan tambahan pada baris ini belum cukup '
+            + 'jelas untuk dinilai otomatis terhadap pedoman tipologi K1.';
+    }
+    window.alert(pesan);
+  });
+
+  /* ---- Tombol Admin "Setujui Tipologi": muat ulang halaman supaya status di
+     baris itu (dan baris lain yang mungkin ikut berubah) selalu akurat ---- */
+  tabel.addEventListener('click', function (e) {
+    var tombol = e.target.closest('.tombol-setujui-tipologi');
+    if (!tombol) return;
+    fetch('/opname/' + tombol.dataset.tahun + '/' + tombol.dataset.id + '/setujui-tipologi',
+          { method: 'POST', headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+      .then(function (r) { return r.json(); })
+      .then(function (j) { if (j.ok) location.reload(); else window.alert(j.pesan || 'Gagal.'); })
+      .catch(function () { window.alert('Gagal menyimpan persetujuan, coba lagi.'); });
+  });
+
+  /* ---- Hapus baris lewat fetch, supaya tidak perlu memuat ulang halaman ---- */
+  tabel.addEventListener('submit', function (e) {
+    var borang = e.target;
+    if (!borang.classList.contains('form-hapus-opname')) return;
+    e.preventDefault();
+    var baris = borang.closest('tr');
+    fetch(borang.action, { method: 'POST', headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+      .then(function (r) { return r.json(); })
+      .then(function (j) {
+        if (j.ok && baris) baris.remove();
+        else if (!j.ok) window.alert(j.pesan || 'Baris tidak bisa dihapus.');
+      })
+      .catch(function () { window.alert('Gagal menghapus, coba lagi.'); });
+  });
+})();
+</script>
+
+{% endblock %}
