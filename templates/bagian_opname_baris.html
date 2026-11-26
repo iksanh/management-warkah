@@ -2,6 +2,9 @@
    kali digambar maupun oleh pembaruan berkala (polling) dari opname_tahun.html,
    supaya kedua jalur selalu menghasilkan markup tabel yang sama persis. #}
 {% for r in baris %}
+{% set kunci = "nomor hak " + (r.nomor_hak or r.nomor_berkas or '-') %}
+{% set a = analisis.get(r.id) if analisis else None %}
+{% set d = disetujui.get(kunci) if disetujui else None %}
 <tr data-id="{{ r.id }}">
   <td class="tengah">{{ loop.index }}</td>
   <td class="mono">{{ r.tahun }}</td>
@@ -27,10 +30,16 @@
     {% else %}
       <span class="redup">—</span>
     {% endfor %}
-    {% set a = analisis.get(r.id) if analisis else None %}
-    {% if a %}
+    {% if d %}
+      <span class="tanda hijau" title="Disetujui manual oleh {{ d[0] }}, {{ d[1] }}">✓ disetujui admin</span>
+    {% elif a %}
       {% if a.status == 'sesuai' %}
         <span class="tanda hijau" title="Sesuai pedoman tipologi K1 — {{ a.alasan | join('; ') }}">✓ sesuai</span>
+      {% elif a.status == 'sebagian' %}
+        <span class="tanda biru"
+              title="Yang dicentang sudah didukung bukti, TAPI catatan/keterangannya juga mengarah ke tipologi lain yang belum ikut dicentang — {{ a.alasan | join('; ') }}">
+          + ada indikasi: {{ a.disarankan | join('/') }}
+        </span>
       {% elif a.status == 'tidak_sesuai' %}
         <span class="tanda oranye"
               title="Berdasarkan Catatan Kekurangan/Keterangan, kemungkinan lebih tepat {{ a.disarankan | join(' atau ') }} — {{ a.alasan | join('; ') }}">
@@ -48,13 +57,34 @@
     {% endfor %}
     {{ (teks | join('; ')) if teks else (r.catatan or '—') }}
   </td>
+  <td class="kecil redup">{{ petugas_input.get(kunci, '-') if petugas_input else '-' }}</td>
   <td class="tengah nowrap">
     <button type="button" class="tombol kecil kedua tombol-cek-tipologi"
-            data-status="{{ a.status if a else '' }}"
+            data-status="{{ ('disetujui' if d else a.status) if (d or a) else '' }}"
             data-disarankan="{{ a.disarankan | join(', ') if a else '' }}"
             data-alasan="{{ a.alasan | join('\n') if a else '' }}">
       Cek Tipologi
     </button>
+    <button type="button" class="tombol kecil kedua tombol-ubah-opname"
+            data-id="{{ r.id }}"
+            data-wilayah-id="{{ r.wilayah_id or '' }}"
+            data-nomor-berkas="{{ r.nomor_berkas or '' }}"
+            data-nomor-hak="{{ r.nomor_hak or r.nomor_hak_asli or '' }}"
+            data-jenis-hak="{{ r.jenis_hak or '' }}"
+            data-nama-pemegang="{{ r.nama_pemegang or '' }}"
+            data-luas="{{ r.luas or '' }}"
+            data-sudah-diserahkan="{{ 1 if r.sudah_diserahkan else 0 }}"
+            data-tipologi="{{ r.tipologi or '' }}"
+            data-catatan-kode="{{ r.catatan_kode or '' }}"
+            data-catatan="{{ r.catatan or '' }}">
+      Ubah
+    </button>
+    {% if admin %}
+      <button type="button" class="tombol kecil kedua tombol-setujui-tipologi"
+              data-id="{{ r.id }}" data-disetujui="{{ 1 if d else 0 }}">
+        {{ 'Batalkan Persetujuan' if d else 'Setujui Tipologi' }}
+      </button>
+    {% endif %}
     <form method="post" action="/opname/{{ tahun }}/{{ r.id }}/hapus"
           class="form-hapus-opname" style="display:inline"
           data-konfirmasi="Hapus baris ini dari opname {{ tahun }}?">
@@ -63,5 +93,5 @@
   </td>
 </tr>
 {% else %}
-<tr><td colspan="12" class="kosong">Belum ada baris yang diisi untuk tahun ini.</td></tr>
+<tr><td colspan="13" class="kosong">Belum ada baris yang cocok dengan filter ini.</td></tr>
 {% endfor %}

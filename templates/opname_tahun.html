@@ -8,6 +8,9 @@
   Target K1: <strong>{{ info.target_k1 | angka if info.target_k1 is not none else '—' }}</strong>
   &nbsp;·&nbsp; Realisasi K1 (dilaporkan): <strong>{{ info.realisasi_k1 | angka if info.realisasi_k1 is not none else '—' }}</strong>
   &nbsp;·&nbsp; Sudah diinput di sini: <strong id="opname-jumlah">{{ jumlah | angka }}</strong> baris
+  {% if filter_petugas or filter_wilayah_id or filter_status %}
+    &nbsp;·&nbsp; Ditampilkan sesuai filter: <strong id="opname-jumlah-tampil">{{ jumlah_tampil | angka }}</strong> baris
+  {% endif %}
 </p>
 
 {% if tersimpan %}<div class="pesan sukses">Baris tersimpan.</div>{% endif %}
@@ -162,6 +165,56 @@
   </a>
 </div>
 
+<div class="kartu rapat" id="kartu-ubah-opname" hidden>
+  <p class="pesan awas" style="margin:0">
+    Sedang mengubah baris #<span id="ubah-id-label"></span>.
+    <button type="button" class="tombol kecil kedua" id="ubah-batal">Batal, tambah baris baru saja</button>
+  </p>
+</div>
+
+<div class="kartu rapat">
+  <form method="get" class="baris-borang tiga" id="filter-opname">
+    <div class="bidang-isian">
+      <label for="f-desa">Filter Desa/Kelurahan</label>
+      <select id="f-desa" name="wilayah_id">
+        <option value="">— semua desa —</option>
+        {% for w in wilayah %}
+          <option value="{{ w.id }}" {{ 'selected' if filter_wilayah_id == (w.id | string) else '' }}>
+            {{ w.nama_desa }} ({{ w.nama_kecamatan }})
+          </option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="bidang-isian">
+      <label for="f-petugas">Filter Petugas Input</label>
+      <select id="f-petugas" name="petugas">
+        <option value="">— semua petugas —</option>
+        {% for p in daftar_petugas_input %}
+          <option value="{{ p }}" {{ 'selected' if filter_petugas == p else '' }}>{{ p }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="bidang-isian">
+      <label for="f-status">Filter Status Tipologi</label>
+      <select id="f-status" name="status">
+        <option value="">— semua status —</option>
+        <option value="sesuai" {{ 'selected' if filter_status == 'sesuai' else '' }}>✓ Sesuai</option>
+        <option value="sebagian" {{ 'selected' if filter_status == 'sebagian' else '' }}>+ Ada indikasi tambahan</option>
+        <option value="tidak_sesuai" {{ 'selected' if filter_status == 'tidak_sesuai' else '' }}>⚠ Tidak sesuai</option>
+        <option value="tanpa_info" {{ 'selected' if filter_status == 'tanpa_info' else '' }}>? Belum jelas</option>
+        <option value="disetujui" {{ 'selected' if filter_status == 'disetujui' else '' }}>✓ Disetujui admin</option>
+        <option value="kosong" {{ 'selected' if filter_status == 'kosong' else '' }}>Tipologi belum diisi</option>
+      </select>
+    </div>
+    <div class="deret-tombol">
+      <button type="submit" class="tombol kedua">Terapkan Filter</button>
+      {% if filter_petugas or filter_wilayah_id or filter_status %}
+        <a href="/opname/{{ tahun }}" class="tombol kecil kedua">Hapus Filter</a>
+      {% endif %}
+    </div>
+  </form>
+</div>
+
 <div class="kartu rapat">
   <div class="gulir">
     <table id="tabel-opname">
@@ -178,6 +231,7 @@
           <th>Sudah Diserahkan</th>
           <th>Tipologi Permasalahan</th>
           <th>Catatan Kekurangan</th>
+          <th>Petugas Input</th>
           <th class="tengah">Aksi</th>
         </tr>
       </thead>
@@ -189,6 +243,11 @@
 <script>
 (function () {
   var TAHUN = {{ tahun }};
+  var borang = document.getElementById('borang-opname');
+  var AKSI_TAMBAH = borang.action;
+  var tombolSimpan = borang.querySelector('button[type="submit"]');
+  var kartuUbah = document.getElementById('kartu-ubah-opname');
+  var ubahIdLabel = document.getElementById('ubah-id-label');
 
   /* ---- Kecamatan menyaring pilihan Desa (opsional, keduanya tetap bisa ketik) ---- */
   var kec = document.getElementById('op-kecamatan');
@@ -355,8 +414,15 @@
     var pesan;
     if (!status) {
       pesan = 'Tipologi Permasalahan belum diisi pada baris ini, tidak ada yang bisa dicek.';
+    } else if (status === 'disetujui') {
+      pesan = '✓ Status tipologi sudah disetujui manual oleh Admin, menimpa hasil analisis otomatis.';
     } else if (status === 'sesuai') {
       pesan = '✓ Sesuai pedoman tipologi K1.\n\n' + (tombol.dataset.alasan || '');
+    } else if (status === 'sebagian') {
+      pesan = '+ Tipologi yang dicentang sudah didukung bukti, TAPI Catatan Kekurangan/'
+            + 'Keterangan tambahan juga mengarah ke tipologi lain yang belum ikut '
+            + 'dicentang: ' + tombol.dataset.disarankan + '\n\n' + (tombol.dataset.alasan || '')
+            + '\n\nPertimbangkan menambahkan kode itu lewat tombol Ubah, kalau memang berkaitan.';
     } else if (status === 'tidak_sesuai') {
       pesan = '⚠ Berdasarkan Catatan Kekurangan/Keterangan tambahan, kemungkinan '
             + 'lebih tepat: ' + tombol.dataset.disarankan + '\n\n' + (tombol.dataset.alasan || '');
@@ -367,13 +433,66 @@
     window.alert(pesan);
   });
 
+  /* ---- Tombol "Ubah": isi borang Tambah baris dengan data baris ini, lalu
+     alihkan submit-nya ke endpoint ubah (bukan tambah baru) ---- */
+  function keluarModeUbah() {
+    borang.action = AKSI_TAMBAH;
+    borang.dataset.mode = '';
+    tombolSimpan.textContent = 'Save';
+    kartuUbah.hidden = true;
+  }
+  document.getElementById('tabel-opname-isi').addEventListener('click', function (e) {
+    var tombol = e.target.closest('.tombol-ubah-opname');
+    if (!tombol) return;
+    var opsiDesa = desa.querySelector('option[value="' + tombol.dataset.wilayahId + '"]');
+    isiBorang({
+      nomor_berkas: tombol.dataset.nomorBerkas,
+      nomor_hak: tombol.dataset.nomorHak,
+      nama_pemegang: tombol.dataset.namaPemegang,
+      wilayah_id: tombol.dataset.wilayahId,
+      nama_kecamatan: opsiDesa ? opsiDesa.dataset.kecamatan : '',
+      jenis_hak: tombol.dataset.jenisHak,
+      luas: tombol.dataset.luas,
+      sudah_diserahkan: tombol.dataset.sudahDiserahkan === '1',
+      tipologi: tombol.dataset.tipologi,
+      catatan_kode: tombol.dataset.catatanKode,
+      catatan: tombol.dataset.catatan,
+    });
+    borang.action = '/opname/' + TAHUN + '/' + tombol.dataset.id + '/ubah';
+    borang.dataset.mode = 'ubah';
+    tombolSimpan.textContent = 'Simpan Perubahan';
+    ubahIdLabel.textContent = tombol.dataset.id;
+    kartuUbah.hidden = false;
+    borang.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  });
+  document.getElementById('ubah-batal').addEventListener('click', function () {
+    document.getElementById('op-reset').click();
+    keluarModeUbah();
+  });
+
+  /* ---- Tombol Admin "Setujui Tipologi": menimpa status jadi "disetujui admin" ---- */
+  document.getElementById('tabel-opname-isi').addEventListener('click', function (e) {
+    var tombol = e.target.closest('.tombol-setujui-tipologi');
+    if (!tombol) return;
+    fetch('/opname/' + TAHUN + '/' + tombol.dataset.id + '/setujui-tipologi',
+          { method: 'POST', headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+      .then(function (r) { return r.json(); })
+      .then(function (j) {
+        if (!j.ok) { window.alert(j.pesan || 'Gagal.'); return; }
+        tombol.blur();   // segarkan() tidak menyegarkan isi tabel kalau salah
+                         // satu elemen di dalamnya (tombol ini sendiri) fokus
+        segarkan();
+      })
+      .catch(function () { window.alert('Gagal menyimpan persetujuan, coba lagi.'); });
+  });
+
   /* ---- Hapus baris lewat fetch, supaya tidak perlu memuat ulang halaman ---- */
   document.getElementById('tabel-opname-isi').addEventListener('submit', function (e) {
-    var borang = e.target;
-    if (!borang.classList.contains('form-hapus-opname')) return;
+    var borangHapus = e.target;
+    if (!borangHapus.classList.contains('form-hapus-opname')) return;
     e.preventDefault();
-    var baris = borang.closest('tr');
-    fetch(borang.action, { method: 'POST', headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+    var baris = borangHapus.closest('tr');
+    fetch(borangHapus.action, { method: 'POST', headers: { 'X-Requested-With': 'XMLHttpRequest' } })
       .then(function (r) { return r.json(); })
       .then(function (j) {
         if (j.ok && baris) baris.remove();
@@ -382,16 +501,19 @@
       .catch(function () { window.alert('Gagal menghapus, coba lagi.'); });
   });
 
-  /* ---- Pembaruan berkala: orang lain bisa sedang mengisi tahun yang sama ---- */
+  /* ---- Pembaruan berkala: orang lain bisa sedang mengisi tahun yang sama.
+     Ikut location.search supaya filter yang sedang aktif tetap terjaga. ---- */
   var isi = document.getElementById('tabel-opname-isi');
   var jumlah = document.getElementById('opname-jumlah');
+  var jumlahTampil = document.getElementById('opname-jumlah-tampil');
   function segarkan() {
-    fetch('/opname/' + TAHUN + '/baris.json')
+    fetch('/opname/' + TAHUN + '/baris.json' + location.search)
       .then(function (r) { return r.json(); })
       .then(function (j) {
         if (document.activeElement && isi.contains(document.activeElement)) return;
         isi.innerHTML = j.html;
-        jumlah.textContent = j.jumlah;
+        jumlah.textContent = j.total;
+        if (jumlahTampil) jumlahTampil.textContent = j.jumlah;
       })
       .catch(function () {});
   }
