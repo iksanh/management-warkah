@@ -8,31 +8,63 @@
   Jumlah baris yang sudah diinput tiap petugas lewat menu Opname Fisik Residu,
   seluruh tahun 2017–2026. Dihitung dari catatan aktivitas saat baris itu
   pertama kali dibuat, supaya tetap benar siapa pengisinya walau baris itu
-  belakangan diubah atau dihapus lagi dari menu lain. Papan peringkat di bawah
-  diperbarui sendiri setiap beberapa detik, tidak perlu memuat ulang halaman.
+  belakangan diubah atau dihapus lagi dari menu lain. Papan peringkat Pegawai
+  dan Magang di bawah dipisah dan masing-masing diperbarui sendiri setiap
+  beberapa detik, tidak perlu memuat ulang halaman.
 </p>
 
 {% if tersimpan %}<div class="pesan sukses">Tersimpan.</div>{% endif %}
 
-<div class="balapan-papan" id="balapan-papan">
-  {% for b in baris[:3] %}
-    {% set persen = (b.jumlah / (baris[0].jumlah or 1) * 100) | round(0, 'floor') | int %}
-    {% set persen = [persen, 4] | max %}
-    <div class="balapan-baris" data-petugas="{{ b.petugas }}">
-      <div class="balapan-peringkat">{{ ['🥇', '🥈', '🥉'][loop.index0] }}</div>
-      <div class="balapan-info">
-        <div class="balapan-nama">
-          <a href="/opname/rekap/petugas/{{ b.petugas | urlencode }}">{{ b.petugas }}</a>
+<div class="kisi k2">
+  <div class="kartu rapat">
+    <h2>Peringkat Pegawai</h2>
+    <div class="balapan-papan" id="balapan-papan-pegawai">
+      {% set top_pegawai = baris | selectattr('kategori', 'equalto', 'Pegawai') | list %}
+      {% for b in top_pegawai[:2] %}
+        {% set persen = (b.jumlah / (top_pegawai[0].jumlah or 1) * 100) | round(0, 'floor') | int %}
+        {% set persen = [persen, 4] | max %}
+        <div class="balapan-baris" data-petugas="{{ b.petugas }}">
+          <div class="balapan-peringkat">{{ ['🥇', '🥈'][loop.index0] }}</div>
+          <div class="balapan-info">
+            <div class="balapan-nama">
+              <a href="/opname/rekap/petugas/{{ b.petugas | urlencode }}">{{ b.petugas }}</a>
+            </div>
+            <div class="balapan-trek">
+              <div class="balapan-isi" style="width: {{ persen }}%"></div>
+            </div>
+          </div>
+          <div class="balapan-skor">{{ b.jumlah | angka }}</div>
         </div>
-        <div class="balapan-trek">
-          <div class="balapan-isi" style="width: {{ persen }}%"></div>
-        </div>
-      </div>
-      <div class="balapan-skor">{{ b.jumlah | angka }}</div>
+      {% else %}
+        <p class="balapan-kosong">Belum ada baris opname yang diinput pegawai.</p>
+      {% endfor %}
     </div>
-  {% else %}
-    <p class="balapan-kosong">Belum ada baris opname yang diinput.</p>
-  {% endfor %}
+  </div>
+
+  <div class="kartu rapat">
+    <h2>Peringkat Magang</h2>
+    <div class="balapan-papan" id="balapan-papan-magang">
+      {% set top_magang = baris | selectattr('kategori', 'equalto', 'Magang') | list %}
+      {% for b in top_magang[:2] %}
+        {% set persen = (b.jumlah / (top_magang[0].jumlah or 1) * 100) | round(0, 'floor') | int %}
+        {% set persen = [persen, 4] | max %}
+        <div class="balapan-baris" data-petugas="{{ b.petugas }}">
+          <div class="balapan-peringkat">{{ ['🥇', '🥈'][loop.index0] }}</div>
+          <div class="balapan-info">
+            <div class="balapan-nama">
+              <a href="/opname/rekap/petugas/{{ b.petugas | urlencode }}">{{ b.petugas }}</a>
+            </div>
+            <div class="balapan-trek">
+              <div class="balapan-isi" style="width: {{ persen }}%"></div>
+            </div>
+          </div>
+          <div class="balapan-skor">{{ b.jumlah | angka }}</div>
+        </div>
+      {% else %}
+        <p class="balapan-kosong">Belum ada baris opname yang diinput petugas magang.</p>
+      {% endfor %}
+    </div>
+  </div>
 </div>
 
 <div class="kartu rapat">
@@ -41,6 +73,7 @@
       <thead>
         <tr>
           <th>Petugas</th>
+          <th>Kategori</th>
           <th class="angka">Baris Diinput</th>
           <th class="angka">Tahun Dikerjakan</th>
           <th class="angka">Hari Kerja</th>
@@ -53,6 +86,7 @@
         {% for b in baris %}
           <tr>
             <td><a href="/opname/rekap/petugas/{{ b.petugas | urlencode }}">{{ b.petugas }}</a></td>
+            <td class="kecil redup">{{ b.kategori }}</td>
             <td class="angka">{{ b.jumlah | angka }}</td>
             <td class="angka">{{ b.tahun | angka }}</td>
             <td class="angka">{{ b.hari | angka }}</td>
@@ -61,13 +95,14 @@
             <td class="mono kecil">{{ b.tgl_akhir or '—' }}</td>
           </tr>
         {% else %}
-          <tr><td colspan="7" class="kosong">Belum ada baris opname yang diinput.</td></tr>
+          <tr><td colspan="8" class="kosong">Belum ada baris opname yang diinput.</td></tr>
         {% endfor %}
       </tbody>
       {% if baris %}
       <tfoot>
         <tr>
           <td><strong>JUMLAH SELURUHNYA</strong></td>
+          <td></td>
           <td class="angka"><strong id="rekap-total">{{ total | angka }}</strong></td>
           <td colspan="5"></td>
         </tr>
@@ -171,10 +206,11 @@
 
 <script>
 (function () {
-  var papan = document.getElementById('balapan-papan');
+  var papanPegawai = document.getElementById('balapan-papan-pegawai');
+  var papanMagang = document.getElementById('balapan-papan-magang');
   var isiTabel = document.getElementById('rekap-tabel-isi');
   var totalEl = document.getElementById('rekap-total');
-  var EMAS = ['🥇', '🥈', '🥉'];
+  var EMAS = ['🥇', '🥈'];
 
   function formatAngka(n) {
     return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, '.');
@@ -213,7 +249,7 @@
     return baris;
   }
 
-  function perbaruiPapan(tigaBesar) {
+  function perbaruiPapan(papan, duaBesar, pesanKosong) {
     // FLIP: catat posisi lama tiap baris (berdasarkan nama petugas) sebelum
     // DOM-nya diganti, supaya pertukaran peringkat terlihat bergeser halus,
     // bukan meloncat tiba-tiba.
@@ -223,12 +259,12 @@
     });
 
     papan.innerHTML = '';
-    if (!tigaBesar.length) {
-      papan.appendChild(el('p', 'balapan-kosong', 'Belum ada baris opname yang diinput.'));
+    if (!duaBesar.length) {
+      papan.appendChild(el('p', 'balapan-kosong', pesanKosong));
       return;
     }
-    var maksimal = tigaBesar[0].jumlah;
-    tigaBesar.forEach(function (b, i) { papan.appendChild(barisBalapan(b, i, maksimal)); });
+    var maksimal = duaBesar[0].jumlah;
+    duaBesar.forEach(function (b, i) { papan.appendChild(barisBalapan(b, i, maksimal)); });
 
     papan.querySelectorAll('.balapan-baris').forEach(function (e) {
       var lama = posisiLama[e.dataset.petugas];
@@ -252,6 +288,7 @@
     var tdNama = document.createElement('td');
     tdNama.appendChild(tautanPetugas(b.petugas));
     tr.appendChild(tdNama);
+    tr.appendChild(el('td', 'kecil redup', b.kategori));
     var kolom = [
       [formatAngka(b.jumlah), 'angka'],
       [formatAngka(b.tahun), 'angka'],
@@ -269,7 +306,7 @@
     if (!semua.length) {
       var tr = document.createElement('tr');
       tr.appendChild(el('td', 'kosong', 'Belum ada baris opname yang diinput.'));
-      tr.lastChild.colSpan = 7;
+      tr.lastChild.colSpan = 8;
       isiTabel.appendChild(tr);
       return;
     }
@@ -281,7 +318,10 @@
     fetch('/opname/rekap.json')
       .then(function (r) { return r.json(); })
       .then(function (data) {
-        perbaruiPapan(data.baris.slice(0, 3));
+        var pegawai = data.baris.filter(function (b) { return b.kategori === 'Pegawai'; });
+        var magang = data.baris.filter(function (b) { return b.kategori === 'Magang'; });
+        perbaruiPapan(papanPegawai, pegawai.slice(0, 2), 'Belum ada baris opname yang diinput pegawai.');
+        perbaruiPapan(papanMagang, magang.slice(0, 2), 'Belum ada baris opname yang diinput petugas magang.');
         perbaruiTabel(data.baris, data.total);
       })
       .catch(function () {});

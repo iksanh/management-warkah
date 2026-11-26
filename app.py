@@ -3612,6 +3612,13 @@ def analisis_tipologi(tipologi_kode, catatan_kode, catatan, peta_catatan, tidak_
     bukti = bukti_tipologi(catatan_kode, catatan, peta_catatan, tidak_ditemukan)
 
     if not bukti:
+        # T1 (T1.1-T1.4/T1) berarti berkas siap diserahkan, tidak ada
+        # kendala -- jadi Catatan Kekurangan/Keterangan tambahan TIDAK wajib
+        # diisi supaya baris ini tetap dianggap "sesuai". Tetap boleh diisi
+        # kalau petugas mau menambahkan catatan, cuma memang tidak dipaksa.
+        if dipilih and all(k == "T1" or k.startswith("T1.") for k in dipilih):
+            return {"status": "sesuai", "disarankan": sorted(dipilih),
+                    "alasan": ["T1 siap diserahkan, tidak wajib ada Catatan Kekurangan/Keterangan"]}
         return {"status": "tanpa_info", "disarankan": [], "alasan": []}
 
     cocok = sorted(dipilih & set(bukti))
@@ -4198,6 +4205,18 @@ def muat_kecuali(kon):
     return aturan, dilewati
 
 
+def peta_kategori_petugas(kon):
+    """nama petugas -> "Magang" kalau akun pemilik nama itu memakai username
+    yang berakhiran "_magang", selebihnya "Pegawai" (termasuk nama yang sudah
+    tidak punya akun lagi, supaya tetap muncul di papan peringkat). Dipakai
+    memisah papan peringkat Rekap Petugas jadi dua kelompok terpisah.
+    """
+    peta = {}
+    for p in kon.execute("SELECT nama, username FROM petugas"):
+        peta[p["nama"]] = "Magang" if (p["username"] or "").lower().endswith("_magang") else "Pegawai"
+    return peta
+
+
 def hitung_rekap_petugas(kon):
     """Rekap per petugas: berapa baris opname yang sudah diinput tiap orang.
 
@@ -4220,6 +4239,7 @@ def hitung_rekap_petugas(kon):
     """
     aturan, dilewati = muat_kecuali(kon)
     kualitas_aktif = filter_kualitas_aktif(kon)
+    kategori_petugas = peta_kategori_petugas(kon)
     residu = peta_residu_opname(kon) if kualitas_aktif else {}
     peta_catatan = ({c["kode"]: c["teks"] for c in daftar_catatan(kon, semua=True)}
                     if kualitas_aktif else {})
@@ -4250,7 +4270,8 @@ def hitung_rekap_petugas(kon):
             p["tgl_akhir"] = hari
 
     baris = sorted(
-        ({"petugas": k, "jumlah": v["jumlah"], "tahun": len(v["tahun"]),
+        ({"petugas": k, "kategori": kategori_petugas.get(k, "Pegawai"),
+          "jumlah": v["jumlah"], "tahun": len(v["tahun"]),
           "hari": len(v["hari"]), "tgl_awal": v["tgl_awal"], "tgl_akhir": v["tgl_akhir"]}
          for k, v in per_petugas.items()),
         key=lambda b: (-b["jumlah"], b["petugas"]))
@@ -4299,8 +4320,9 @@ async def opname_rekap_json(request: Request):
     kon.close()
     return JSONResponse({
         "total": total,
-        "baris": [{"petugas": b["petugas"], "jumlah": b["jumlah"], "tahun": b["tahun"],
-                  "hari": b["hari"], "tgl_awal": b["tgl_awal"], "tgl_akhir": b["tgl_akhir"]}
+        "baris": [{"petugas": b["petugas"], "kategori": b["kategori"], "jumlah": b["jumlah"],
+                  "tahun": b["tahun"], "hari": b["hari"], "tgl_awal": b["tgl_awal"],
+                  "tgl_akhir": b["tgl_akhir"]}
                  for b in baris],
     })
 
