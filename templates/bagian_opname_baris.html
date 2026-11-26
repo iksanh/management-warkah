@@ -22,10 +22,18 @@
     {% endif %}
   </td>
   <td class="kecil nowrap">
-    {% if r.tipologi %}<span class="tanda abu">{{ r.tipologi }}</span>{% else %}<span class="redup">—</span>{% endif %}
+    {% for k in (r.tipologi or '').split(',') if k %}
+      <span class="tanda abu" title="{{ k }}">{{ k }}</span>
+    {% else %}
+      <span class="redup">—</span>
+    {% endfor %}
   </td>
   <td class="kecil">
-    {{ peta_catatan.get(r.catatan_kode, r.catatan_kode) if r.catatan_kode else (r.catatan or '—') }}
+    {% set teks = [] %}
+    {% for k in (r.catatan_kode or '').split(',') if k %}
+      {% set _ = teks.append(peta_catatan.get(k, k)) %}
+    {% endfor %}
+    {{ (teks | join('; ')) if teks else (r.catatan or '—') }}
   </td>
   <td class="tengah">
     <form method="post" action="/opname/{{ tahun }}/{{ r.id }}/hapus"
