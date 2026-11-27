@@ -45,11 +45,11 @@
     <h2>Peringkat Magang</h2>
     <div class="balapan-papan" id="balapan-papan-magang">
       {% set top_magang = baris | selectattr('kategori', 'equalto', 'Magang') | list %}
-      {% for b in top_magang[:2] %}
+      {% for b in top_magang[:3] %}
         {% set persen = (b.jumlah / (top_magang[0].jumlah or 1) * 100) | round(0, 'floor') | int %}
         {% set persen = [persen, 4] | max %}
         <div class="balapan-baris" data-petugas="{{ b.petugas }}">
-          <div class="balapan-peringkat">{{ ['🥇', '🥈'][loop.index0] }}</div>
+          <div class="balapan-peringkat">{{ ['🥇', '🥈', '🥉'][loop.index0] }}</div>
           <div class="balapan-info">
             <div class="balapan-nama">
               <a href="/opname/rekap/petugas/{{ b.petugas | urlencode }}">{{ b.petugas }}</a>
@@ -210,7 +210,7 @@
   var papanMagang = document.getElementById('balapan-papan-magang');
   var isiTabel = document.getElementById('rekap-tabel-isi');
   var totalEl = document.getElementById('rekap-total');
-  var EMAS = ['🥇', '🥈'];
+  var EMAS = ['🥇', '🥈', '🥉'];
 
   function formatAngka(n) {
     return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, '.');
@@ -249,7 +249,7 @@
     return baris;
   }
 
-  function perbaruiPapan(papan, duaBesar, pesanKosong) {
+  function perbaruiPapan(papan, teratas, pesanKosong) {
     // FLIP: catat posisi lama tiap baris (berdasarkan nama petugas) sebelum
     // DOM-nya diganti, supaya pertukaran peringkat terlihat bergeser halus,
     // bukan meloncat tiba-tiba.
@@ -259,12 +259,12 @@
     });
 
     papan.innerHTML = '';
-    if (!duaBesar.length) {
+    if (!teratas.length) {
       papan.appendChild(el('p', 'balapan-kosong', pesanKosong));
       return;
     }
-    var maksimal = duaBesar[0].jumlah;
-    duaBesar.forEach(function (b, i) { papan.appendChild(barisBalapan(b, i, maksimal)); });
+    var maksimal = teratas[0].jumlah;
+    teratas.forEach(function (b, i) { papan.appendChild(barisBalapan(b, i, maksimal)); });
 
     papan.querySelectorAll('.balapan-baris').forEach(function (e) {
       var lama = posisiLama[e.dataset.petugas];
@@ -321,7 +321,7 @@
         var pegawai = data.baris.filter(function (b) { return b.kategori === 'Pegawai'; });
         var magang = data.baris.filter(function (b) { return b.kategori === 'Magang'; });
         perbaruiPapan(papanPegawai, pegawai.slice(0, 2), 'Belum ada baris opname yang diinput pegawai.');
-        perbaruiPapan(papanMagang, magang.slice(0, 2), 'Belum ada baris opname yang diinput petugas magang.');
+        perbaruiPapan(papanMagang, magang.slice(0, 3), 'Belum ada baris opname yang diinput petugas magang.');
         perbaruiTabel(data.baris, data.total);
       })
       .catch(function () {});
