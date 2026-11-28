@@ -4389,6 +4389,10 @@ def buku_matriks_k1(lembar):
     Satu baris per berkas; tiap kolom kode tipologi diberi tanda "v" bila
     kode itu tercatat pada baris residu (kolom tipologi bisa berisi beberapa
     kode dipisah koma), dan Jumlah = banyaknya kode yang tertanda.
+
+    Kode di luar kolom resmi (kode umum T1/T2/T3, T3.4, dst.) tidak boleh
+    hilang diam-diam: kolomnya ditambahkan SESUDAH Jumlah, supaya kolom A s.d.
+    Jumlah tetap persis format Kementerian.
     """
     from openpyxl import Workbook
     from openpyxl.styles import Alignment, Border, Font, Side
@@ -4398,21 +4402,30 @@ def buku_matriks_k1(lembar):
     tipis = Side(style="thin")
     garis = Border(left=tipis, right=tipis, top=tipis, bottom=tipis)
 
+    def kode_baris(r):
+        return {k.strip() for k in (r["tipologi"] or "").split(",") if k.strip()}
+
+    kode_lain = sorted({k for _, baris in lembar for r in baris for k in kode_baris(r)}
+                       - set(KOLOM_MATRIKS_TIPOLOGI), key=impor_residu.urut_tipologi)
+    kepala = KEPALA_MATRIKS_K1 + [k + (" (tanpa sub-kode)" if "." not in k else "")
+                                  for k in kode_lain]
+
     buku = Workbook()
     buku.remove(buku.active)
     for nama, baris in lembar:
         ls = buku.create_sheet(nama[:31])
-        ls.append(KEPALA_MATRIKS_K1)
+        ls.append(kepala)
         for no, r in enumerate(baris, start=1):
-            kode = {k.strip() for k in (r["tipologi"] or "").split(",") if k.strip()}
+            kode = kode_baris(r)
             tanda = ["v" if k in kode else None for k in KOLOM_MATRIKS_TIPOLOGI]
+            lain = ["v" if k in kode else None for k in kode_lain]
             tahun = r["tahun"]
             if isinstance(tahun, str) and tahun.strip().isdigit():
                 tahun = int(tahun)
             ls.append(["%d." % no, KANTOR_PERTANAHAN,
                        r["nama_kecamatan"] or r["kecamatan_teks"],
                        r["nama_desa"] or r["desa_teks"], r["nomor_berkas"], tahun]
-                      + tanda + [sum(1 for t in tanda if t)])
+                      + tanda + [sum(1 for t in tanda + lain if t)] + lain)
         for deret in ls.iter_rows():
             for sel in deret:
                 sel.font, sel.alignment, sel.border = huruf, tengah, garis
